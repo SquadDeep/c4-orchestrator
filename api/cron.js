@@ -188,7 +188,7 @@ async function callGroq(prompt, apiKey) {
 async function updateNotion(pageId, updates, keys) {
   const properties = {};
   for (const [key, value] of Object.entries(updates)) {
-    if (key === 'Phase') {
+    if (key === 'Property') {
       properties[key] = { select: { name: value } };
     } else if (key === 'Input' || key === 'Output') {
       properties[key] = { rich_text: [{ text: { content: String(value).substring(0, 2000) } }] };
@@ -225,30 +225,30 @@ async function queryNotion(dbId, filter, keys) {
 // ─── Main pipeline ──────────────────────────────────────────
 async function processProject(page, keys) {
   const props = page.properties;
-  const phase = props.Phase?.select?.name || 'idle';
+  const Property = props.Property?.select?.name || 'idle';
   const input = props.Input?.rich_text?.[0]?.text?.content || '';
   const output = props.Output?.rich_text?.[0]?.text?.content || '';
   const projectName = props['Project Name']?.title?.[0]?.text?.content || 'Unnamed';
 
-  console.log(`📋 Processing "${projectName}" — Phase: ${phase}`);
+  console.log(`📋 Processing "${projectName}" — Property: ${Property}`);
 
   let newOutput = output;
-  let newPhase = phase;
+  let newProperty = Property;
   let newAgent = '';
   let link = '';
 
   try {
-    switch (phase) {
+    switch (Property) {
       case 'idle': {
         if (!input) break; // stay idle until user adds input
-        newPhase = 'research';
+        newProperty = 'research';
         newAgent = 'groq';
         break;
       }
 
       case 'research': {
         newOutput = await runResearch(input, keys);
-        newPhase = 'code';
+        newProperty = 'code';
         newAgent = 'groq';
         break;
       }
@@ -259,7 +259,7 @@ async function processProject(page, keys) {
         newOutput = JSON.stringify(codeFiles).substring(0, 2000);
         // Temporarily store full code in a separate Notion block (or we can chain)
         // For now, keep code compact
-        newPhase = 'deploy';
+        newProperty = 'deploy';
         newAgent = 'github';
         break;
       }
@@ -267,24 +267,24 @@ async function processProject(page, keys) {
       case 'deploy': {
         let codeFiles;
         try { codeFiles = JSON.parse(output); } catch { 
-          newPhase = 'failed'; 
-          newOutput = 'Could not parse code files. Retry code phase.'; 
+          newProperty = 'failed'; 
+          newOutput = 'Could not parse code files. Retry code Property.'; 
           break;
         }
         const deployResult = await runDeploy(codeFiles, projectName, keys);
         newOutput = `Repo: ${deployResult.repoUrl}\nDeploy: ${deployResult.deployUrl || 'pending...'}`;
         link = deployResult.deployUrl || '';
-        newPhase = 'voice';
+        newProperty = 'voice';
         newAgent = 'vapi';
         break;
       }
 
       case 'voice': {
         const deployUrl = link || output.match(/Deploy: (https:\/\/[^\s]+)/)?.[1] || '';
-        if (!deployUrl) { newPhase = 'failed'; newOutput = 'No deploy URL found. Skipping voice.'; break; }
+        if (!deployUrl) { newProperty = 'failed'; newOutput = 'No deploy URL found. Skipping voice.'; break; }
         const voiceResult = await runVoice(deployUrl, projectName, keys);
         newOutput = `Assistant: ${voiceResult.assistantId}\nPhone: ${voiceResult.phoneNumber || 'pending'}`;
-        newPhase = 'ethics';
+        newProperty = 'ethics';
         newAgent = 'huggingface';
         break;
       }
@@ -292,7 +292,7 @@ async function processProject(page, keys) {
       case 'ethics': {
         const ethicsResult = await runEthics(input + ' ' + output, keys);
         newOutput = output + `\nEthics: ${ethicsResult.passed ? 'PASSED' : 'FLAGGED'} — ${ethicsResult.summary}`;
-        newPhase = ethicsResult.passed ? 'done' : 'failed';
+        newProperty = ethicsResult.passed ? 'done' : 'failed';
         newAgent = '';
         break;
       }
@@ -307,18 +307,18 @@ async function processProject(page, keys) {
 
     // Update Notion
     await updateNotion(page.id, {
-      Phase: newPhase,
+      Property: newProperty,
       Output: newOutput || output,
       Agent: newAgent,
       ...(link ? { Link: link } : {}),
     }, keys);
 
-    console.log(`✅ "${projectName}" → ${newPhase}`);
+    console.log(`✅ "${projectName}" → ${newProperty}`);
   } catch (err) {
     console.error(`❌ Error on "${projectName}":`, err.message);
     await updateNotion(page.id, {
-      Phase: 'failed',
-      Output: `Error in ${phase}: ${err.message}`,
+      Property: 'failed',
+      Output: `Error in ${Property}: ${err.message}`,
       Agent: '',
     }, keys);
   }
@@ -352,11 +352,11 @@ export async function GET(request) {
   }
 
   try {
-    // Poll Notion for projects in active phases (not done/failed)
+    // Poll Notion for projects in active Propertys (not done/failed)
     const activeProjects = await queryNotion(keys.NOTION_DB_ID, {
       and: [
-        { property: 'Phase', select: { does_not_equal: 'done' } },
-        { property: 'Phase', select: { does_not_equal: 'failed' } },
+        { property: 'Property', select: { does_not_equal: 'done' } },
+        { property: 'Property', select: { does_not_equal: 'failed' } },
       ],
     }, keys);
 
