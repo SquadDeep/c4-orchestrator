@@ -1,6 +1,5 @@
-// C4 Autonomous Orchestrator - Clean, definitive version
-// Notion column names confirmed: Name, Phase (select), Input, Output, Agent, Link (URL)
-// Phase select values: Idle (capital I), research, code, deploy, ethics, done, failed
+// C4 Autonomous Orchestrator - Supabase version
+// No Notion required. Projects live in Supabase 'projects' table.
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -21,42 +20,49 @@ async function callGroq(prompt, apiKey) {
   return data.choices[0].message.content || '';
 }
 
-async function notionUpdate(pageId, phase, output, token) {
-  const body = {
-    properties: {
-      'Phase': { select: { name: phase } },
-      'Output': { rich_text: [{ text: { content: String(output || '').substring(0, 1900) } }] },
-    }
-  };
-  const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
-    method: 'PATCH',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'Notion-Version': '2022-06-28',
-    },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (data.object === 'error') {
-    throw new Error(`Notion write failed: ${data.message} | body: ${JSON.stringify(body.properties)}`);
-  }
-  return data;
-}
-
-async function notionQuery(dbId, token) {
-  const res = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+async function supabaseQuery(url, key, sql) {
+  const res = await fetch(`${url}/rest/v1/rpc/exec_sql`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${token}`,
+      'Authorization': `Bearer ${key}`,
+      'apikey': key,
       'Content-Type': 'application/json',
-      'Notion-Version': '2022-06-28',
     },
-    body: JSON.stringify({ page_size: 10 }),
+    body: JSON.stringify({ sql }),
   });
-  const data = await res.json();
-  if (data.object === 'error') throw new Error(`Notion query failed: ${data.message}`);
-  return data.results || [];
+  return res.json();
+}
+
+async function getActiveProjects(url, key) {
+  const res = await fetch(
+    `${url}/rest/v1/projects?phase=not.in.(done,failed)&select=*&order=created_at.asc&limit=5`,
+    {
+      headers: {
+        'Authorization': `Bearer ${key}`,
+        'apikey': key,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+  return res.json();
+}
+
+async function updateProject(url, key, id, updates) {
+  const res = await fetch(`${url}/rest/v1/projects?id=eq.${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${key}`,
+      'apikey': key,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Supabase update failed: ${text}`);
+  }
+  return true;
 }
 
 export async function GET(request) {
@@ -65,134 +71,100 @@ export async function GET(request) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  const NOTION_TOKEN = process.env.NOTION_TOKEN;
-  const NOTION_DB_ID = process.env.NOTION_DB_ID;
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY;
   const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
-  if (!NOTION_TOKEN || !NOTION_DB_ID || !GROQ_API_KEY) {
-    return new Response(`Missing: ${[!NOTION_TOKEN && 'NOTION_TOKEN', !NOTION_DB_ID && 'NOTION_DB_ID', !GROQ_API_KEY && 'GROQ_API_KEY'].filter(Boolean).join(', ')}`, { status: 500 });
+  if (!SUPABASE_URL || !SUPABASE_KEY || !GROQ_API_KEY) {
+    return new Response('Missing env vars', { status: 500 });
   }
 
   const log = [];
-  
+  let processed = 0;
+
   try {
-    const pages = await notionQuery(NOTION_DB_ID, NOTION_TOKEN);
-    log.push(`Found ${pages.length} total rows`);
-
-    let processed = 0;
-
-    for (const page of pages) {
-      const props = page.properties;
-      
-      // Read phase - handle both 'Phase' column name
-      const phaseRaw = props['Phase']?.select?.name || '';
-      const phase = phaseRaw.toLowerCase();
-      
-      // Read name
-      const name = props['Name']?.title?.[0]?.plain_text 
-        || props['Name']?.title?.[0]?.text?.content 
-        || 'Unnamed';
-      
-      // Read input
-      const input = props['Input']?.rich_text?.[0]?.text?.content || '';
-      const output = props['Output']?.rich_text?.[0]?.text?.content || '';
-
-      log.push(`Row: "${name}" | Phase raw: "${phaseRaw}" | Has input: ${!!input}`);
-
-      // Skip terminal states
-      if (phase === 'done' || phase === 'failed') {
-        log.push(`  → Skipping terminal state`);
-        continue;
-      }
-
-      // Process idle rows that have input
-      if (phase === 'idle' || phaseRaw === 'Idle') {
-        if (!input) {
-          log.push(`  → Skipping: no input`);
-          continue;
-        }
-        try {
-          await notionUpdate(page.id, 'research', output, NOTION_TOKEN);
-          log.push(`  → Updated to: research`);
-          processed++;
-        } catch (e) {
-          log.push(`  → ERROR updating to research: ${e.message}`);
-        }
-        continue;
-      }
-
-      if (phase === 'research') {
-        try {
-          const result = await callGroq(
-            `Research this project and give a concise action plan (under 400 words) with best free tools and APIs:\n\n${input}`,
-            GROQ_API_KEY
-          );
-          await notionUpdate(page.id, 'code', result, NOTION_TOKEN);
-          log.push(`  → Research done, updated to: code`);
-          processed++;
-        } catch (e) {
-          log.push(`  → ERROR in research: ${e.message}`);
-          await notionUpdate(page.id, 'failed', e.message, NOTION_TOKEN).catch(() => {});
-        }
-        continue;
-      }
-
-      if (phase === 'code') {
-        try {
-          const result = await callGroq(
-            `For project: "${input}"\nResearch: "${output.substring(0, 400)}"\n\nDescribe the MVP Next.js file structure and key logic needed. Under 300 words.`,
-            GROQ_API_KEY
-          );
-          await notionUpdate(page.id, 'deploy', result, NOTION_TOKEN);
-          log.push(`  → Code plan done, updated to: deploy`);
-          processed++;
-        } catch (e) {
-          log.push(`  → ERROR in code: ${e.message}`);
-          await notionUpdate(page.id, 'failed', e.message, NOTION_TOKEN).catch(() => {});
-        }
-        continue;
-      }
-
-      if (phase === 'deploy') {
-        try {
-          await notionUpdate(page.id, 'ethics', output + '\n\n[Deploy: ready — use voice-agent deployment pattern]', NOTION_TOKEN);
-          log.push(`  → Updated to: ethics`);
-          processed++;
-        } catch (e) {
-          log.push(`  → ERROR in deploy: ${e.message}`);
-        }
-        continue;
-      }
-
-      if (phase === 'ethics') {
-        try {
-          await notionUpdate(page.id, 'done', output + '\n\n[Ethics: PASSED ✓]', NOTION_TOKEN);
-          log.push(`  → Updated to: done`);
-          processed++;
-        } catch (e) {
-          log.push(`  → ERROR in ethics: ${e.message}`);
-        }
-        continue;
-      }
-
-      log.push(`  → Unknown phase "${phase}", skipping`);
+    const projects = await getActiveProjects(SUPABASE_URL, SUPABASE_KEY);
+    
+    if (!Array.isArray(projects)) {
+      throw new Error(`Unexpected response: ${JSON.stringify(projects)}`);
     }
 
-    log.push(`Processed: ${processed}`);
+    log.push(`Found ${projects.length} active projects`);
 
-    return new Response(JSON.stringify({ 
-      ok: true,
-      processed,
-      log,
-      timestamp: new Date().toISOString() 
-    }, null, 2), {
+    for (const project of projects) {
+      const { id, name, phase, input, output } = project;
+      log.push(`Processing "${name}" — phase: "${phase}"`);
+
+      try {
+        if (phase === 'idle') {
+          if (!input) { log.push(`  → No input, skipping`); continue; }
+          await updateProject(SUPABASE_URL, SUPABASE_KEY, id, { phase: 'research' });
+          log.push(`  → moved to: research`);
+          processed++;
+          continue;
+        }
+
+        if (phase === 'research') {
+          const result = await callGroq(
+            `Research this project and give a concise action plan (under 400 words) with the best free tools and APIs to build it:\n\n${input}`,
+            GROQ_API_KEY
+          );
+          await updateProject(SUPABASE_URL, SUPABASE_KEY, id, { phase: 'code', output: result });
+          log.push(`  → research done, moved to: code`);
+          processed++;
+          continue;
+        }
+
+        if (phase === 'code') {
+          const result = await callGroq(
+            `For this project: "${input}"\n\nBased on this research:\n${(output||'').substring(0,400)}\n\nDescribe the MVP Next.js file structure and key logic needed. Under 300 words.`,
+            GROQ_API_KEY
+          );
+          await updateProject(SUPABASE_URL, SUPABASE_KEY, id, { phase: 'deploy', output: result });
+          log.push(`  → code plan done, moved to: deploy`);
+          processed++;
+          continue;
+        }
+
+        if (phase === 'deploy') {
+          await updateProject(SUPABASE_URL, SUPABASE_KEY, id, {
+            phase: 'ethics',
+            output: (output || '') + '\n\n[Deploy: ready — use voice-agent deployment pattern]'
+          });
+          log.push(`  → moved to: ethics`);
+          processed++;
+          continue;
+        }
+
+        if (phase === 'ethics') {
+          await updateProject(SUPABASE_URL, SUPABASE_KEY, id, {
+            phase: 'done',
+            output: (output || '') + '\n\n[Ethics: PASSED ✓]'
+          });
+          log.push(`  → moved to: done ✅`);
+          processed++;
+          continue;
+        }
+
+        log.push(`  → Unknown phase "${phase}", skipping`);
+
+      } catch (err) {
+        log.push(`  → ERROR: ${err.message}`);
+        await updateProject(SUPABASE_URL, SUPABASE_KEY, id, {
+          phase: 'failed',
+          output: `Error in ${phase}: ${err.message}`
+        }).catch(() => {});
+      }
+    }
+
+    return new Response(JSON.stringify({ ok: true, processed, log, timestamp: new Date().toISOString() }, null, 2), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
 
   } catch (err) {
     log.push(`FATAL: ${err.message}`);
-    return new Response(JSON.stringify({ ok: false, error: err.message, log }, null, 2), { 
+    return new Response(JSON.stringify({ ok: false, error: err.message, log }, null, 2), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
