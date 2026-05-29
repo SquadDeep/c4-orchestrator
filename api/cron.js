@@ -17,17 +17,11 @@ async function callGroq(prompt, apiKey) {
   return data.choices?.[0]?.message?.content || '';
 }
 
-async function updateNotion(pageId, phaseValue, outputValue, agentValue, linkValue, keys) {
+async function updateNotion(pageId, phaseValue, outputValue, keys) {
   const properties = {
-    'Property': { select: { name: phaseValue } },
+    'Phase': { select: { name: phaseValue } },
     'Output': { rich_text: [{ text: { content: String(outputValue || '').substring(0, 2000) } }] },
   };
-  if (agentValue) {
-    properties['Agent'] = { rich_text: [{ text: { content: agentValue } }] };
-  }
-  if (linkValue) {
-    properties['Link'] = { url: linkValue };
-  }
 
   const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
     method: 'PATCH',
@@ -56,8 +50,8 @@ async function queryNotion(dbId, keys) {
     body: JSON.stringify({
       filter: {
         and: [
-          { property: 'Property', select: { does_not_equal: 'done' } },
-          { property: 'Property', select: { does_not_equal: 'failed' } },
+          { property: 'Phase', select: { does_not_equal: 'done' } },
+          { property: 'Phase', select: { does_not_equal: 'failed' } },
         ],
       },
       page_size: 5,
@@ -72,58 +66,63 @@ async function queryNotion(dbId, keys) {
 
 async function processProject(page, keys) {
   const props = page.properties;
-  const phase = props.Property?.select?.name || 'idle';
+  const phaseRaw = props.Phase?.select?.name || '';
+  const phase = phaseRaw.toLowerCase();
   const input = props.Input?.rich_text?.[0]?.text?.content || '';
   const output = props.Output?.rich_text?.[0]?.text?.content || '';
-  const projectName = props['Project Name']?.title?.[0]?.plain_text || props['Project Name']?.title?.[0]?.text?.content || 'Unnamed';
+  const projectName = props['Project Name']?.title?.[0]?.plain_text
+    || props['Project Name']?.title?.[0]?.text?.content
+    || 'Unnamed';
 
-  console.log(`📋 Processing "${projectName}" — Phase: ${phase}`);
+  console.log(`Processing "${projectName}" — Phase: "${phaseRaw}" (normalized: "${phase}")`);
 
   try {
     if (phase === 'idle') {
       if (!input) {
-        console.log(`⏭ Skipping "${projectName}" — no input`);
+        console.log(`Skipping "${projectName}" — no input yet`);
         return;
       }
-      await updateNotion(page.id, 'research', output, 'groq', null, keys);
-      console.log(`✅ "${projectName}" → research`);
+      await updateNotion(page.id, 'research', output, keys);
+      console.log(`"${projectName}" → research`);
       return;
     }
 
     if (phase === 'research') {
-      const prompt = `Research this project and return a concise summary of the best free tools, APIs, and approach to build it. Keep it under 500 words and actionable.\n\nProject: ${input}`;
+      const prompt = `Research this project idea and return a concise summary (under 400 words) of the best free tools, APIs, and approach to build it:\n\nProject: ${input}`;
       const result = await callGroq(prompt, keys.GROQ_API_KEY);
-      await updateNotion(page.id, 'code', result, 'groq', null, keys);
-      console.log(`✅ "${projectName}" → code`);
+      await updateNotion(page.id, 'code', result, keys);
+      console.log(`"${projectName}" → code`);
       return;
     }
 
     if (phase === 'code') {
-      const prompt = `Based on this project idea: "${input}" and research: "${output.substring(0, 500)}", describe the key files needed for a Next.js app in one paragraph. Keep it under 300 words.`;
+      const prompt = `For this project: "${input}"\n\nBased on this research: "${output.substring(0, 400)}"\n\nDescribe in one paragraph the key Next.js files needed to build an MVP. Keep it under 300 words.`;
       const result = await callGroq(prompt, keys.GROQ_API_KEY);
-      await updateNotion(page.id, 'deploy', result, 'vercel', null, keys);
-      console.log(`✅ "${projectName}" → deploy`);
+      await updateNotion(page.id, 'deploy', result, keys);
+      console.log(`"${projectName}" → deploy`);
       return;
     }
 
     if (phase === 'deploy') {
-      await updateNotion(page.id, 'ethics', output + '\n[Deploy step — manual deployment needed via voice-agent repo pattern]', 'vercel', null, keys);
-      console.log(`✅ "${projectName}" → ethics`);
+      await updateNotion(page.id, 'ethics', output + '\n\n[Deploy: ready for manual deployment using voice-agent pattern]', keys);
+      console.log(`"${projectName}" → ethics`);
       return;
     }
 
     if (phase === 'ethics') {
-      await updateNotion(page.id, 'done', output + '\n[Ethics: PASSED — no issues detected]', '', null, keys);
-      console.log(`✅ "${projectName}" → done`);
+      await updateNotion(page.id, 'done', output + '\n\n[Ethics: PASSED]', keys);
+      console.log(`"${projectName}" → done`);
       return;
     }
 
+    console.log(`"${projectName}" — phase "${phase}" is terminal or unknown, skipping`);
+
   } catch (err) {
-    console.error(`❌ Error on "${projectName}":`, err.message);
+    console.error(`Error on "${projectName}":`, err.message);
     try {
-      await updateNotion(page.id, 'failed', `Error in ${phase}: ${err.message}`, '', null, keys);
+      await updateNotion(page.id, 'failed', `Error in ${phase}: ${err.message}`, keys);
     } catch (e) {
-      console.error('Failed to update error state:', e.message);
+      console.error('Could not update error state:', e.message);
     }
   }
 }
@@ -161,9 +160,9 @@ export async function GET(request) {
       await processProject(page, keys);
     }
 
-    return new Response(JSON.stringify({ 
-      processed: activeProjects.length, 
-      timestamp: new Date().toISOString() 
+    return new Response(JSON.stringify({
+      processed: activeProjects.length,
+      timestamp: new Date().toISOString()
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
