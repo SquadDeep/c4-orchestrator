@@ -1,3 +1,4 @@
+// Redeployed: 2026-06-07 — force env var pickup
 // C4 Autonomous Orchestrator - Supabase + OpenAI version
 // Projects live in Supabase 'projects' table.
 
