@@ -18,7 +18,7 @@ async function rawCall(model, messages) {
   const res = await fetch(GROQ_URL, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+      "Authorization": `Bearer ${process.env.GROQ_API_KEY_NEW}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ model, messages, max_tokens: MAX_TOKENS, temperature: 0.3 }),
