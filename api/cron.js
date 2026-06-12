@@ -61,7 +61,7 @@ export async function GET(request) {
   const missing = [];
   if (!SUPABASE_URL) missing.push('SUPABASE_URL');
   if (!SUPABASE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
-  if (!process.env.GROQ_API_KEY) missing.push('GROQ_API_KEY');
+  if (!process.env.GROQ_API_KEY_NEW) missing.push('GROQ_API_KEY_NEW');
 
   if (missing.length > 0) {
     return new Response(
