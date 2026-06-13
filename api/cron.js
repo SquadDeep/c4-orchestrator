@@ -21,7 +21,7 @@ export default async function handler(req, res) {
     if (!groqRes.ok) throw new Error(`Groq error: ${await groqRes.text()}`);
     const data = await groqRes.json();
     const pulse = data.choices?.[0]?.message?.content ?? "NO_RESPONSE";
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
     await supabase.from("episodic_log").insert({
       event: "cron_heartbeat", content: pulse, timestamp: new Date().toISOString()
     });
