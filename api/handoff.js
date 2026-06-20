@@ -30,14 +30,9 @@ export default async function handler(req, res) {
   if (!isAuthed(req))
     return res.status(401).json({ error: 'Unauthorized' });
 
-  // ── GET — read handoffs ──────────────────────────────────────────
+  // ── GET — list handoffs ──────────────────────────────────────────
   if (req.method === 'GET') {
-    const {
-      status,
-      to_agent,
-      from_agent,
-      limit = '25',
-    } = req.query;
+    const { status, agent, limit = '25' } = req.query;
 
     let q = supabase
       .from('handoffs')
@@ -45,49 +40,50 @@ export default async function handler(req, res) {
       .order('created_at', { ascending: false })
       .limit(Number(limit));
 
-    if (status)     q = q.eq('status', status);
-    if (to_agent)   q = q.eq('to_agent', to_agent);
-    if (from_agent) q = q.eq('from_agent', from_agent);
+    if (status) q = q.eq('status', status);
+    if (agent)  q = q.eq('agent', agent.toUpperCase());
 
     const { data, error } = await q;
     if (error) return res.status(500).json({ error: error.message });
-
     return res.status(200).json({ handoffs: data, count: data.length });
   }
 
   // ── POST — create handoff ────────────────────────────────────────
   if (req.method === 'POST') {
-    const {
-      from_agent,
-      to_agent,
-      payload,
-      status = 'pending',
-    } = req.body ?? {};
+    const { agent, task, priority = 'P2', notes = '' } = req.body ?? {};
 
-    if (!from_agent || !to_agent || !payload)
-      return res.status(400).json({
-        error: 'from_agent, to_agent, payload required',
-      });
+    if (!agent || !task)
+      return res.status(400).json({ error: 'agent and task are required' });
 
     const { data, error } = await supabase
       .from('handoffs')
-      .insert([{ from_agent, to_agent, payload, status }])
+      .insert([{
+        agent:      agent.toUpperCase(),
+        task,
+        priority,
+        notes,
+        status:     'open',
+        created_at: new Date().toISOString(),
+      }])
       .select();
 
     if (error) return res.status(500).json({ error: error.message });
     return res.status(201).json({ handoff: data[0] });
   }
 
-  // ── PATCH — update status / payload ─────────────────────────────
+  // ── PATCH — update status / notes / close_notes ──────────────────
   if (req.method === 'PATCH') {
-    const { id, status, payload } = req.body ?? {};
+    const { id, status, notes, close_notes } = req.body ?? {};
 
     if (!id)
       return res.status(400).json({ error: 'id required' });
 
-    const patch = { updated_at: new Date().toISOString() };
-    if (status  !== undefined) patch.status  = status;
-    if (payload !== undefined) patch.payload = payload;
+    const now = new Date().toISOString();
+    const patch = { updated_at: now };
+    if (status      !== undefined) patch.status      = status;
+    if (notes       !== undefined) patch.notes       = notes;
+    if (close_notes !== undefined) patch.close_notes = close_notes;
+    if (status === 'closed' || status === 'done') patch.closed_at = now;
 
     const { data, error } = await supabase
       .from('handoffs')
@@ -97,7 +93,6 @@ export default async function handler(req, res) {
 
     if (error) return res.status(500).json({ error: error.message });
     if (!data?.length) return res.status(404).json({ error: 'Not found' });
-
     return res.status(200).json({ handoff: data[0] });
   }
 
