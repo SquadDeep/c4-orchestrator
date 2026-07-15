@@ -1,5 +1,6 @@
-// /api/handoff.js — FULL REPLACEMENT
-// Adds GET (list/filter) and PATCH (close-out) to existing POST handler
+// /api/handoff.js — C4 Orchestrator handoff route (CLYDE lane)
+// GET (list/filter) + POST (create) + PATCH (close-out)
+// Edit source: SquadDeep\02_Projects\c4-mesh\api\handoff.js -> push via GitHub API -> Vercel auto-deploy
 
 import { createClient } from '@supabase/supabase-js'
 
