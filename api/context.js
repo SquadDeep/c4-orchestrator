@@ -19,7 +19,12 @@ export default async function handler(req, res) {
   try {
     const [states, pending, events, projects, scrapes] = await Promise.all([
       supabase.from('session_state').select('*').order('updated_at', { ascending: false }).limit(4),
-      supabase.from('handoffs').select('*').eq('to_hub', hub).eq('status', 'pending').order('created_at'),
+      // 2026-07-16: was .eq('status','pending'). No row in this table has ever had status
+// 'pending' - the vocabulary is open/claimed/in_progress vs done/closed/cancelled. So
+// "HANDOFFS WAITING FOR YOU" rendered 0 for every hub since inception and no handoff was
+// ever actually delivered at boot. Match anything not yet finished, and tolerate all the
+// spellings the mesh has emitted over time.
+    supabase.from('handoffs').select('*').eq('to_hub', hub).in('status', ['pending','open','claimed','in_progress']).order('created_at'),
       supabase.from('episodic_log').select('*').order('created_at', { ascending: false }).limit(10),
       supabase.from('projects').select('*').order('id', { ascending: false }).limit(8),
       supabase.from('scrapes').select('id,source,url,count,status,created_at').order('created_at', { ascending: false }).limit(5),
