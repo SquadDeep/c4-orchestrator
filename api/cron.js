@@ -113,12 +113,21 @@ export default async function handler(req, res) {
 
   // Because nothing here closes a handoff, an open row would otherwise be re-advised on every
   // cycle — burning Groq calls and stacking duplicate log rows forever. Advise each one once.
-  const { data: advised = [] } = await supabase
+  const { data: advised, error: advisedErr } = await supabase
     .from('episodic_log')
     .select('handoff_id')
-    .in('handoff_id', openHandoffs.length ? openHandoffs.map(h => h.id) : [-1]);
-  const alreadyAdvised = new Set((advised || []).map(r => r.handoff_id));
-  const handoffs = openHandoffs.filter(h => !alreadyAdvised.has(h.id));
+    .in('handoff_id', openHandoffs.length ? openHandoffs.map(h => String(h.id)) : ['-1']);
+
+  // If the lookup fails we do not know what was already advised. Advising everything again is
+  // the expensive wrong answer, so skip the block this cycle and say so loudly. Never swallow
+  // this the way worker.js:277 swallows signal_checks — see lessons.md L11.
+  if (advisedErr) console.error('[cron] advisory dedupe lookup failed, skipping advisories this cycle:', advisedErr.message);
+
+  // episodic_log.handoff_id is TEXT, so this returns "29" while handoffs.id is the number 29.
+  // Set.has() is strict: has(29) against a set holding "29" is false, so the dedupe matched
+  // nothing and every open handoff was re-advised on every cycle. Both sides go to string.
+  const alreadyAdvised = new Set((advised || []).map(r => String(r.handoff_id)));
+  const handoffs = advisedErr ? [] : openHandoffs.filter(h => !alreadyAdvised.has(String(h.id)));
 
   for (const h of handoffs) {
     try {
