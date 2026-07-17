@@ -1,0 +1,87 @@
+# .github/workflows/squad-cycle.yml
+# Squad Deep — Autonomous Cycle Engine
+# Fires every 2 hours, 9 AM–5 PM EDT, Mon–Fri
+# GitHub Actions runs on GitHub servers — zero local compute, zero cost
+#
+# REQUIRED SETUP (one time):
+#   GitHub repo → Settings → Secrets and variables → Actions → New repository secret
+#   Name: C4_AUTH_TOKEN   Value: c4-my-secret-2026
+
+name: Squad Deep — Cycle Engine
+
+on:
+  schedule:
+    # EDT = UTC-4 (Apr–Nov). Times in UTC.
+    - cron: '0 13 * * 1-5'   #  9 AM EDT — Morning push + brief
+    - cron: '0 15 * * 1-5'   # 11 AM EDT — Mid-morning push
+    - cron: '0 17 * * 1-5'   #  1 PM EDT — Afternoon push
+    - cron: '0 19 * * 1-5'   #  3 PM EDT — Late afternoon push
+    - cron: '0 21 * * 1-5'   #  5 PM EDT — EOD push + debrief
+
+  # Manual fire from GitHub UI: Actions tab → Squad Deep Cycle Engine → Run workflow
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual trigger'
+        required: false
+        default: 'Manual squad push'
+
+jobs:
+  run-cycle:
+    name: Fire C4 Cycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Determine cycle type
+        id: cycle_type
+        run: |
+          HOUR=$(date -u +%H)
+          if [ "$HOUR" = "13" ]; then
+            echo "type=morning" >> $GITHUB_OUTPUT
+            echo "label=🌅 9 AM Morning Push" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "21" ]; then
+            echo "type=eod" >> $GITHUB_OUTPUT
+            echo "label=🌆 5 PM EOD Push" >> $GITHUB_OUTPUT
+          else
+            echo "type=cycle" >> $GITHUB_OUTPUT
+            echo "label=⚡ Mid-day Push (${HOUR}:00 UTC)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run C4 Agent Cycle
+        id: run_cycle
+        run: |
+          echo "== ${{ steps.cycle_type.outputs.label }} =="
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.C4_AUTH_TOKEN }}" \
+            "https://c4-orchestrator.vercel.app/api/cron")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP: $HTTP_CODE"
+          echo "Body: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Cycle failed — HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Cycle complete"
+
+      - name: Pull Report (9 AM brief + 5 PM debrief only)
+        if: steps.cycle_type.outputs.type != 'cycle'
+        run: |
+          TYPE="${{ steps.cycle_type.outputs.type }}"
+          echo "Pulling $TYPE report..."
+          curl -s \
+            -H "Authorization: Bearer ${{ secrets.C4_AUTH_TOKEN }}" \
+            "https://c4-orchestrator.vercel.app/api/report?type=${TYPE}" \
+            | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          print(d.get('report', '[no report]'))
+          print()
+          print('--- DATA ---')
+          print(json.dumps(d.get('data', {}), indent=2))
+          " || echo "[report endpoint returned error]"
+
+      - name: Log completion
+        run: |
+          echo "✅ Squad Deep cycle complete: $(date -u)"
