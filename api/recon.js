@@ -39,7 +39,10 @@ async function fetchSite(entry) {
   try {
     const r = await fetch(entry.url, {
       redirect: 'follow',
-      headers: { 'User-Agent': 'SquadDeep-Recon/1.0 (+cannalens.netlify.app)' },
+      // This UA is sent to real third-party dispensary sites. It pointed at
+      // cannalens.netlify.app, which is not where CannaLens runs - anyone checking their logs
+      // to see who was crawling them was given a URL that isn't the product.
+      headers: { 'User-Agent': 'SquadDeep-Recon/1.0 (+https://cannalens.gqtmvjcymc-280.workers.dev)' },
       signal: AbortSignal.timeout(6000),
     });
     const html = (await r.text()) || '';

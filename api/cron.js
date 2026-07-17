@@ -43,7 +43,7 @@ const SELF_TASKS = {
   HERALD:    'Write a 150-word cold outreach email to a Syracuse dispensary owner introducing CannaLens as a free featured listing platform. Make it concrete, not salesy.',
   FORGE:     'Audit the current CannaLens + C4 architecture. Identify the single highest-leverage technical improvement that would increase reliability or user retention. Return a 3-point proposal.',
   RAINMAKER: 'Model a revenue scenario for CannaLens: Featured Listing at $99/mo. Show monthly and annual totals for 5, 10, and 20 dispensaries. What is break-even month given $0 infra cost?',
-  SENTINEL:  'Perform a risk audit of the Squad Deep stack: C4 (Vercel+Supabase+Groq), CannaLens (Netlify). List the top 5 single points of failure and one mitigation step each.',
+  SENTINEL:  'Perform a risk audit of the Squad Deep stack: C4 (Vercel + Supabase + Groq), CannaLens (Cloudflare Workers + D1). List the top 5 single points of failure and one mitigation step each.',
 };
 
 // ── Groq call ─────────────────────────────────────────────────────────────────

@@ -100,7 +100,7 @@ export default async function handler(req, res) {
     prompt = `Generate the Squad Deep MORNING BRIEF for ${dateStr}.
 
 == CONTEXT ==
-Stack: C4 Orchestrator (Vercel+Supabase+Groq), CannaLens PWA (Netlify, cannalens.netlify.app).
+Stack: C4 Orchestrator (Vercel+Supabase+Groq), CannaLens PWA (Cloudflare Workers + D1, cannalens.gqtmvjcymc-280.workers.dev).
 Operator: Teh Hopkins, solo founder, Syracuse NY. Zero-budget. Mission: CannaLens as proof of concept for Syracuse tech accelerator grant.
 
 == ACTIVITY SINCE LAST BRIEF (${logs.length} entries) ==
@@ -136,7 +136,7 @@ ${openLines}
     prompt = `Generate the Squad Deep EOD DEBRIEF for ${dateStr}.
 
 == CONTEXT ==
-Stack: C4 (LIVE), CannaLens (LIVE, cannalens.netlify.app). Solo operator: Teh Hopkins, Syracuse NY. Mission: data to prove proof of concept for grant application.
+Stack: C4 (LIVE), CannaLens (LIVE, Cloudflare Workers: cannalens.gqtmvjcymc-280.workers.dev). Solo operator: Teh Hopkins, Syracuse NY. Mission: data to prove proof of concept for grant application.
 
 == TODAY'S ACTIVITY (${logs.length} log entries) ==
 ${logLines}

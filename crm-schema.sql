@@ -95,7 +95,7 @@ create index if not exists idx_crm_activities_deal    on crm_activities(deal_id)
 
 -- ── seed: a couple of rows so the board isn't empty on first load ────
 insert into crm_companies (name, industry, website)
-  select 'Squad Deep', 'AI / Ops', 'https://cannalens.netlify.app'
+  select 'Squad Deep', 'AI / Ops', 'https://cannalens.gqtmvjcymc-280.workers.dev'
   where not exists (select 1 from crm_companies);
 
 insert into crm_deals (title, stage, value, probability, owner)
