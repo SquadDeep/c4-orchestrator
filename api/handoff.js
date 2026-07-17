@@ -18,6 +18,7 @@
 // verify.ps1 work unchanged while `agent`-style callers keep working (agent maps to to_hub).
 
 import { createClient } from '@supabase/supabase-js'
+import { CALLSIGNS } from '../lib/agents.js'
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -110,9 +111,34 @@ export default async function handler(req, res) {
       return closeHandoff(res, { id, status: status || 'done', resolution: resolution || close_notes || '' })
     }
 
-    const recipient = to_hub || agent
-    if (!recipient || !task) {
-      return res.status(400).json({ error: 'task and a recipient (to_hub, or agent) are required' })
+    // `agent` is overloaded for historical reasons, so disambiguate by VALUE rather than guessing:
+    //   - a known callsign ('FORGE')      -> the persona that should answer  -> handoffs.agent
+    //   - anything else ('Main Hub')      -> legacy alias for the recipient  -> handoffs.to_hub
+    // Older callers passed `agent` meaning the hub; cron.js has always read it meaning a callsign.
+    // That disagreement is why the roster was decorative. Both now work, and neither is silent.
+    const agentUp = typeof agent === 'string' ? agent.trim().toUpperCase() : null
+    const isCallsign = !!agentUp && CALLSIGNS.includes(agentUp)
+    const callsign = isCallsign ? agentUp : null
+    const recipient = to_hub || (isCallsign ? null : agent)
+
+    if (!task) return res.status(400).json({ error: 'task is required' })
+    if (!recipient) {
+      return res.status(400).json({
+        error: isCallsign
+          ? `to_hub is required when addressing an agent (got agent='${agentUp}' with no hub to own the work)`
+          : 'a recipient (to_hub, or agent) is required',
+        callsigns: CALLSIGNS,
+      })
+    }
+    // A non-callsign in `agent` alongside an explicit to_hub is ambiguous: it is either a typo'd
+    // callsign or a second hub. Refuse rather than pick — silently dropping it is what produced
+    // handoff #21's empty agent field.
+    if (agent && !isCallsign && to_hub) {
+      return res.status(400).json({
+        error: `ambiguous: agent='${agent}' is not a known callsign, and to_hub='${to_hub}' is already set`,
+        hint: 'use agent for a callsign and to_hub for the hub',
+        callsigns: CALLSIGNS,
+      })
     }
 
     const row = {
@@ -124,12 +150,39 @@ export default async function handler(req, res) {
       priority: priority || 'normal',
       status: 'open',
       created_at: new Date().toISOString(),
+      // NULL means WARDEN. Requires sql/2026-07-16_handoffs-agent.sql to have been applied — the
+      // route inserting a column the DB lacks is precisely the bug that 500'd this endpoint for
+      // three days (schema-cache error). Verify the column exists before deploying this.
+      ...(callsign && { agent: callsign }),
     }
 
     const { data, error } = await supabase.from('handoffs').insert([row]).select().single()
 
     if (error) {
       console.error('[handoff POST]', error)
+
+      // `agent` is only written when a callsign was requested, and only exists once
+      // sql/2026-07-16_handoffs-agent.sql has been applied. Until then, say so in one line
+      // instead of returning a bare 500. The identical error ("Could not find the 'agent'
+      // column of 'handoffs' in the schema cache") took three days to diagnose the first time
+      // precisely because the route reported it as an anonymous failure. Fail loudly, and
+      // tell the caller both the cause and the way forward (lessons.md L11).
+      const missingAgentCol =
+        callsign &&
+        /agent/i.test(error.message || '') &&
+        (/schema cache/i.test(error.message || '') ||
+         /does not exist/i.test(error.message || '') ||
+         error.code === '42703' ||
+         error.code === 'PGRST204')
+      if (missingAgentCol) {
+        return res.status(503).json({
+          error: 'handoffs.agent does not exist yet — agent routing is staged but not migrated',
+          detail: error.message,
+          fix: 'run 02_Projects/c4-mesh/sql/2026-07-16_handoffs-agent.sql in the Supabase SQL editor',
+          workaround: 'omit `agent` to create the handoff now; it will be answered by WARDEN',
+        })
+      }
+
       return res.status(500).json({ error: error.message })
     }
 

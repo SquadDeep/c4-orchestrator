@@ -63,7 +63,7 @@ function render({ hub, states, pending, events, projects, scrapes }) {
 ## YOU ARE: ${hub}
 
 ## HANDOFFS WAITING FOR YOU (${pending.length})
-${pending.length ? pending.map(h => `- [#${h.id} from ${h.from_hub}] ${h.task}${h.context ? ` — ${h.context}` : ''}`).join('\n') : '- None. Clear to pull from the priority queue.'}
+${pending.length ? pending.map(h => `- [#${h.id} from ${h.from_hub}${h.agent ? ` → ${h.agent}` : ''}] ${h.task}${h.context ? ` — ${h.context}` : ''}`).join('\n') : '- None. Clear to pull from the priority queue.'}
 
 ## LIVE HUB STATE
 ${states.length ? states.map(s => `- **${s.hub}**: ${dash(s.status)} — ${dash(s.summary)}${s.active_task ? ` (task: ${s.active_task})` : ''} @ ${stamp(s.updated_at)}`).join('\n') : '- No state checkpointed yet.'}

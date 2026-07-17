@@ -3,6 +3,7 @@
 // Also callable manually: GET /api/cron  Auth: Bearer c4-my-secret-2026
 
 import { createClient } from '@supabase/supabase-js';
+import { AGENTS, resolveAgent, SQUAD_FACTS } from '../lib/agents.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -13,30 +14,8 @@ const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL    = 'llama-3.3-70b-versatile';
 const AUTH     = process.env.C4_SECRET || 'c4-my-secret-2026';
 
-// ── 20-Agent Roster ───────────────────────────────────────────────────────────
-const AGENTS = {
-  WARDEN:     'You are WARDEN, C4 bus orchestrator for Squad Deep. You coordinate all agents and maintain operational status. Solo operator Teh runs this stack.',
-  SOVEREIGN:  'You are SOVEREIGN, the strategic seat on Squad Deep Council. You make high-level business decisions for CannaLens and Atlas IPTV.',
-  STEWARD:    'You are STEWARD, the operations seat. You optimize workflows, reduce friction, and maintain system health.',
-  ORACLE:     'You are ORACLE, the intelligence seat. You synthesize signals into strategic foresight and market intelligence.',
-  FORGE:      'You are FORGE, the architecture seat. You design technical systems, APIs, and infrastructure for Squad Deep projects.',
-  BEACON:     'You are BEACON, the content strategy seat. You drive editorial and product content plans for CannaLens.',
-  HELM:       'You are HELM, the product direction seat. You define roadmaps, features, and user experience priorities.',
-  LEDGER:     'You are LEDGER, the finance seat. You track costs, token budgets, and ROI across the Squad Deep zero-budget stack.',
-  RAINMAKER:  'You are RAINMAKER, the revenue seat. You identify monetization opportunities, partnership structures, and growth levers for CannaLens.',
-  HERALD:     'You are HERALD, the communications seat. You write marketing copy, outreach, and messaging for CannaLens dispensary partners.',
-  DRAGNET:    'You are DRAGNET, the data seat. You design data pipelines, scraping strategies, and structured datasets for CannaLens.',
-  AEGIS:      'You are AEGIS, the security seat. You audit systems for vulnerabilities, rate limit issues, and operational risks.',
-  GAVEL:      'You are GAVEL, the legal/compliance seat. You flag regulatory risks, especially NY cannabis law for CannaLens.',
-  ANCHOR:     'You are ANCHOR, the stability seat. You prevent scope creep, ensure reliability, and keep the team focused.',
-  PATHFINDER: 'You are PATHFINDER, the discovery agent. You find new tools, APIs, partners, and opportunities for Squad Deep.',
-  SMITH:      'You are SMITH, the code agent. You write clean, production-ready JavaScript, Python, and PowerShell.',
-  SENTINEL:   'You are SENTINEL, the critic agent. You review outputs, flag issues, and apply the Iron Wall protocol.',
-  SCOUT:      'You are SCOUT, the research agent. You gather market intelligence, competitor data, and user insights.',
-  VANGUARD:   'You are VANGUARD, the deployment agent. You handle Vercel, Cloudflare Workers, and CI/CD strategy.',
-  MNEMO:      'You are MNEMO, the memory agent. You log key decisions, context updates, and session summaries for Squad Deep continuity.',
-};
-
+// Roster + stack facts come from lib/agents.js. They used to be declared here AND in groq.js with
+// drifting text - two rosters, no authority. See that file for why.
 // ── Self-tasks when queue is empty — agents self-generate ─────────────────────
 const SELF_TASKS = {
   SCOUT:     'Research the top 3 cannabis discovery apps (Weedmaps, Leafly, Jane) and identify one gap each that CannaLens can exploit in the Syracuse NY market. Return structured bullet points with evidence.',
@@ -131,16 +110,26 @@ export default async function handler(req, res) {
 
   for (const h of handoffs) {
     try {
-      // `h.agent` does not exist — the handoffs table has from_hub/to_hub and never had an
-      // `agent` column, so this silently resolved to undefined and every handoff has always
-      // run as WARDEN. Keeping WARDEN, but saying so out loud instead of by accident.
-      const persona = AGENTS.WARDEN;
-      const prompt  = [
-        'Squad Deep — Active Projects: CannaLens (LIVE, Cloudflare Workers: cannalens.gqtmvjcymc-280.workers.dev), C4 Orchestrator (LIVE, c4-orchestrator.vercel.app).',
+      // Real routing, as of 2026-07-16. This was `AGENTS[h.agent] || AGENTS.WARDEN` against a
+      // column that did not exist, so h.agent was always undefined, the `||` always fired, and
+      // every handoff in the mesh's history executed as WARDEN — twenty personas, one voice, and
+      // nothing to indicate it. handoffs.agent now exists (sql/2026-07-16_handoffs-agent.sql) and
+      // resolveAgent reports its fallback instead of hiding it.
+      const { callsign, persona, fellBack, requested } = resolveAgent(h.agent);
+      if (fellBack && requested) {
+        // A bad callsign that silently becomes WARDEN is how this broke the first time. Say it.
+        console.warn(`[cron] handoff #${h.id}: unknown callsign ${JSON.stringify(requested)} — running as WARDEN`);
+      }
+
+      const prompt = [
+        SQUAD_FACTS,
+        '',
         `Handoff #${h.id}, ${h.from_hub || 'unknown'} -> ${h.to_hub || 'unknown'}`,
+        `Addressed to: ${callsign}${fellBack && requested ? ` (requested ${requested}, unknown — answering as WARDEN)` : ''}`,
         `Task: ${h.task}`,
         `Priority: ${h.priority || 'normal'}`,
         h.context ? `Context: ${h.context}` : '',
+        '',
         'You CANNOT execute this. You have no shell, no filesystem, and no deploy credentials.',
         'Do not describe the task as done or write a plan as though you had run it.',
         'Return only advice for the human or hub that will actually do it: risks, prerequisites,',
@@ -150,12 +139,14 @@ export default async function handler(req, res) {
       const output = await callGroq(persona, prompt);
 
       // Advisory only. Status is deliberately untouched — the handoff stays open until a hub
-      // that actually performed the work closes it.
-      await logEntry('WARDEN', `ADVISORY: ${h.task}`, output, { handoff_id: h.id });
+      // that actually performed the work closes it. Logged under the callsign that actually ran,
+      // not the one requested: the episodic_log row for handoff #21 has an EMPTY agent field
+      // because it logged h.agent, which was undefined. Log what happened, not what was asked for.
+      await logEntry(callsign, `ADVISORY: ${h.task}`, output, { handoff_id: h.id });
 
-      results.push({ source: 'handoff', id: h.id, status: 'advised', chars: output.length });
+      results.push({ source: 'handoff', id: h.id, agent: callsign, status: 'advised', chars: output.length });
     } catch (err) {
-      results.push({ source: 'handoff', id: h.id, status: 'failed', error: err.message });
+      results.push({ source: 'handoff', id: h.id, agent: h.agent || null, status: 'failed', error: err.message });
     }
   }
 

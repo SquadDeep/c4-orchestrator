@@ -8,6 +8,7 @@
 // conversation: [{role:'user'|'assistant', content:'...'}] for multi-turn
 
 import { createClient } from '@supabase/supabase-js';
+import { resolveAgent, CALLSIGNS, SQUAD_FACTS } from '../lib/agents.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -19,33 +20,11 @@ const MODEL    = 'llama-3.3-70b-versatile';
 const AUTH     = process.env.C4_SECRET || 'c4-my-secret-2026';
 const PUBLIC_KEY = process.env.C4_PUBLIC_KEY || '';   // per-surface, groq-only — safe to ship in the public CannaLens client
 
-// 2026-07-16: said "64 strains, 19 dispensaries". Actual: 40 strains, 14 dispensaries. Every agent
-// reply was built on invented counts of our own product - same class of error as the cron telling
-// Groq that CannaLens ran on Netlify. If these numbers change, change them here; do not guess.
-const SQUAD_CONTEXT = 'Squad Deep context: C4 Orchestrator (LIVE), CannaLens cannabis discovery PWA (LIVE on Cloudflare Workers, Syracuse NY, 40 strains, 14 OCM-licensed dispensaries). Operator: Teh, solo founder, zero-budget stack. Be decisive and specific.';
+// The roster and the stack facts both live in lib/agents.js now. This file used to carry its own
+// copy of all 20 personas (drifting from cron.js's copy) plus its own SQUAD_CONTEXT, which claimed
+// "64 strains, 19 dispensaries" — actually 40 and 14. Two rosters and three sets of "facts" is how
+// a wrong claim about our own product ends up in every agent reply and then in episodic_log.
 
-const AGENTS = {
-  WARDEN:     'You are WARDEN, C4 bus orchestrator for Squad Deep. You coordinate all agents and maintain operational status.',
-  SOVEREIGN:  'You are SOVEREIGN, strategic lead on Squad Deep Council. You make high-level business decisions for CannaLens and Atlas IPTV.',
-  STEWARD:    'You are STEWARD, operations seat. You optimize workflows, reduce friction, and maintain system health.',
-  ORACLE:     'You are ORACLE, intelligence seat. You synthesize signals into strategic foresight and market intelligence.',
-  FORGE:      'You are FORGE, architecture seat. You design technical systems, APIs, and infrastructure.',
-  BEACON:     'You are BEACON, content strategy seat. You drive editorial and product content plans for CannaLens.',
-  HELM:       'You are HELM, product direction seat. You define roadmaps, features, and UX priorities.',
-  LEDGER:     'You are LEDGER, finance seat. You track costs, token budgets, and ROI. Flag any budget risks immediately.',
-  RAINMAKER:  'You are RAINMAKER, revenue seat. You identify monetization opportunities and growth levers for CannaLens.',
-  HERALD:     'You are HERALD, communications seat. You write marketing copy and outreach for CannaLens dispensary partners.',
-  DRAGNET:    'You are DRAGNET, data seat. You design data pipelines, scraping strategies, and structured datasets.',
-  AEGIS:      'You are AEGIS, security seat. You audit systems for vulnerabilities, rate limit issues, and operational risks.',
-  GAVEL:      'You are GAVEL, legal/compliance seat. You flag regulatory risks, especially NY cannabis law for CannaLens.',
-  ANCHOR:     'You are ANCHOR, stability seat. You prevent scope creep, ensure reliability, and keep the team focused.',
-  PATHFINDER: 'You are PATHFINDER, discovery agent. You find tools, APIs, partners, and opportunities for Squad Deep.',
-  SMITH:      'You are SMITH, code agent. You write clean, production-ready JavaScript, Python, and PowerShell. Always provide working code.',
-  SENTINEL:   'You are SENTINEL, critic agent. You review outputs and flag issues. Apply the Iron Wall protocol ruthlessly.',
-  SCOUT:      'You are SCOUT, research agent. You gather market intelligence, competitor data, and user insights.',
-  VANGUARD:   'You are VANGUARD, deployment agent. You handle Vercel, Cloudflare Workers, and CI/CD strategy.',
-  MNEMO:      'You are MNEMO, memory agent. You log key decisions, context updates, and session summaries.',
-};
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -60,11 +39,24 @@ export default async function handler(req, res) {
   const { agent = 'WARDEN', prompt, system, max_tokens = 800, conversation = [] } = req.body || {};
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
-  const agentKey = (agent || 'WARDEN').toUpperCase();
-  const persona  = system || AGENTS[agentKey] || AGENTS.WARDEN;
+  // An unknown callsign used to fall through `AGENTS[agentKey] || AGENTS.WARDEN` and answer as
+  // WARDEN — while the response and the episodic_log row both still said the requested name. The
+  // caller was told FORGE answered when WARDEN did. Reject it instead: a typo'd callsign is a
+  // caller bug, and silently substituting a different agent is how the roster became fiction.
+  if (!system && !CALLSIGNS.includes(String(agent).toUpperCase())) {
+    return res.status(400).json({
+      error: `unknown agent '${agent}'`,
+      hint: 'pass a known callsign, or `system` to override the persona',
+      callsigns: CALLSIGNS,
+    });
+  }
+
+  const { callsign, persona: rosterPersona } = resolveAgent(agent);
+  const agentKey = system ? 'CUSTOM' : callsign;
+  const persona  = system || rosterPersona;
 
   const messages = [
-    { role: 'system', content: `${persona}\n\n${SQUAD_CONTEXT}` },
+    { role: 'system', content: `${persona}\n\n${SQUAD_FACTS}` },
     ...conversation.slice(-12).map(m => ({ role: m.role, content: m.content })),
     { role: 'user', content: prompt }
   ];
