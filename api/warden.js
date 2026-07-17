@@ -1,7 +1,7 @@
-// api/warden.js — WARDEN Intelligence · Grant / Investor / Risk Search
+// api/warden.js — FIFTY Intelligence · Grant / Investor / Risk Search
 // GET /api/warden?type=grants|investors|intel|risk
 // Auth: Bearer c4-my-secret-2026
-// WARDEN runs monthly grant sweeps and surfaces funding for CannaLens
+// FIFTY runs monthly grant sweeps and surfaces funding for CannaLens
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -26,7 +26,7 @@ async function callGroq(system, user, maxTokens = 1600) {
   return j.choices?.[0]?.message?.content || '(no response)';
 }
 
-// ── STATIC INTELLIGENCE — updated by WARDEN monthly ──
+// ── STATIC INTELLIGENCE — updated by FIFTY monthly ──
 const GRANTS = [
   {
     name: 'NY OCM Community Reinvestment Fund (CGRF)',
@@ -184,18 +184,18 @@ export default async function handler(req, res) {
   // ── GRANTS SWEEP ──
   if (type === 'grants') {
     const summary = await callGroq(
-      `You are WARDEN, Squad Deep's intelligence and security chief. You produce structured, actionable grant intelligence reports for CannaLens — a Syracuse NY cannabis information platform (NOT a retailer). Be direct, prioritize by fit, and surface immediate action items.`,
+      `You are FIFTY, Squad Deep's intelligence and security chief. You produce structured, actionable grant intelligence reports for CannaLens — a Syracuse NY cannabis information platform (NOT a retailer). Be direct, prioritize by fit, and surface immediate action items.`,
       `Monthly Grant Intelligence Sweep — CannaLens / June 2026\n\nFunding opportunities identified:\n${GRANTS.map((g,i) => `${i+1}. ${g.name} | ${g.type} | ${g.amount} | Fit: ${g.fit} | Deadline: ${g.deadline}`).join('\n')}\n\nGenerate a prioritized action brief: which 3 should be pursued immediately and why. Include any risks or disqualifiers. Keep it under 500 words.`
     );
 
     await supabase.from('episodic_log').insert({
-      agent: 'WARDEN',
+      agent: 'FIFTY',
       event_type: 'grant_sweep',
       payload: { grants: GRANTS, summary, swept_at: new Date().toISOString() }
     }).catch(() => {});
 
     return res.status(200).json({
-      agent: 'WARDEN',
+      agent: 'FIFTY',
       report_type: 'grant_intelligence',
       swept_at: new Date().toISOString(),
       total_opportunities: GRANTS.length,
@@ -229,12 +229,12 @@ export default async function handler(req, res) {
   // ── INVESTOR INTEL ──
   if (type === 'investors') {
     const brief = await callGroq(
-      `You are WARDEN, intelligence chief for Squad Deep. You identify strategic investor opportunities for CannaLens — a BIPOC-founded cannabis information platform from Syracuse NY. Focus on investors who value equity, community impact, and AI-driven platforms.`,
+      `You are FIFTY, intelligence chief for Squad Deep. You identify strategic investor opportunities for CannaLens — a BIPOC-founded cannabis information platform from Syracuse NY. Focus on investors who value equity, community impact, and AI-driven platforms.`,
       `Investor Intelligence Brief — CannaLens June 2026\n\nCannaLens profile:\n- Founded in Syracuse NY by a BIPOC entrepreneur\n- Cannabis information + discovery PWA (NOT a retailer)\n- Revenue: subscription, affiliate, partner listings\n- Platform: 65+ strains, live dispensary map, AI budtender, personal journal\n- Markets: NY adult-use cannabis, expanding nationally\n- Stage: Pre-seed / Seed-A\n\nIdentify and describe 8 ideal investor profiles: angel networks, seed funds, cannabis tech VCs, BIPOC-focused funds, NY-based impact investors, and strategic corporate investors. For each, include: investor type, typical check size, why they fit CannaLens, and approach strategy. Do NOT include company names the LLM cannot verify — describe investor profiles and known public programs only.`
     );
 
     return res.status(200).json({
-      agent: 'WARDEN',
+      agent: 'FIFTY',
       report_type: 'investor_intelligence',
       generated_at: new Date().toISOString(),
       warden_brief: brief
@@ -244,12 +244,12 @@ export default async function handler(req, res) {
   // ── MARKET INTEL ──
   if (type === 'intel') {
     const intel = await callGroq(
-      `You are WARDEN, intelligence chief for Squad Deep. Generate a market intelligence brief for the CannaLens platform covering the NY cannabis market, Onondaga County developments, and platform growth signals.`,
+      `You are FIFTY, intelligence chief for Squad Deep. Generate a market intelligence brief for the CannaLens platform covering the NY cannabis market, Onondaga County developments, and platform growth signals.`,
       `CannaLens Market Intelligence — June 2026\n\nKnown data points:\n- NY adult-use cannabis sales: $1.5B+ since launch\n- Onondaga County tax revenue from cannabis: $3.2M in 2025\n- Licensed dispensaries in CNY: 14+ on Weedmaps; 18 on CannaLens map\n- BIPOC-owned dispensaries in Syracuse: 3 (Diamond Tree, Loudpack Exotics, The Higher Company)\n- OCM expanded license cap for upstate NY: +30% approved\n- Consumption lounges now legal in NY (April 2026)\n- CGRF community reinvestment fund: $5M–$15M available\n\nGenerate a 1-page market intelligence brief covering: market size signal, competitive positioning, 3 growth opportunities for CannaLens, and 2 threats to monitor. Keep it sharp and data-driven.`
     );
 
     return res.status(200).json({
-      agent: 'WARDEN',
+      agent: 'FIFTY',
       report_type: 'market_intelligence',
       generated_at: new Date().toISOString(),
       warden_brief: intel

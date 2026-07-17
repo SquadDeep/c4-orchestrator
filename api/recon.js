@@ -89,7 +89,7 @@ export default async function handler(req, res) {
     await supabase.from('handoffs').insert({
       from_hub: 'Recon',
       to_hub:   'Main Hub',
-      task:     `review weekly CNY dispensary recon — ${reached}/${items.length} sites reached (SCOUT)`,
+      task:     `review weekly CNY dispensary recon — ${reached}/${items.length} sites reached (DOUG)`,
       context:  `scrape #${scrapeId ?? '?'} · source cny-recon`,
     });
   } catch (_) { /* non-fatal */ }
@@ -108,7 +108,7 @@ export default async function handler(req, res) {
         model: MODEL,
         max_tokens: 900,
         messages: [
-          { role: 'system', content: 'You are SCOUT, competitive-intelligence analyst for CannaLens (a NY-wide, education-first cannabis strain-discovery PWA with an AI budtender). Analyze PUBLIC dispensary signals only. Be concrete and decisive.' },
+          { role: 'system', content: 'You are DOUG, competitive-intelligence analyst for CannaLens (a NY-wide, education-first cannabis strain-discovery PWA with an AI budtender). Analyze PUBLIC dispensary signals only. Be concrete and decisive.' },
           { role: 'user', content: `Baseline: ${KNOWN}\n\nThis week's public signals from Central-NY dispensaries:\n${signals}\n\nProduce a ranked competitive digest for the CannaLens founder:\n1) Notable changes/moves (pricing, promos, menu, new entrants) worth reacting to this week.\n2) Any gaps CannaLens can exploit.\n3) Top 3 recommended actions, most-impactful first.\nKeep it tight and operational.` },
         ],
       }),
@@ -125,7 +125,7 @@ export default async function handler(req, res) {
 
   // persist digest to episodic_log (best-effort, like warden/grants)
   supabase.from('episodic_log').insert({
-    agent: 'SCOUT',
+    agent: 'DOUG',
     hub: 'Recon',
     event: 'cny_recon',
     task: 'weekly CNY dispensary recon digest',

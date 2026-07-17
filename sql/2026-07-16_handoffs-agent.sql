@@ -36,12 +36,15 @@ comment on column public.handoffs.agent is
 alter table public.handoffs
   drop constraint if exists handoffs_agent_valid;
 
+-- Callsigns reverted to character names 2026-07-17 (squad = House of Lies, council = Power,
+-- bus = FIFTY). Keep this list identical to CALLSIGNS in lib/agents.js — if they drift, a
+-- handoff the route accepts will be rejected by the database, or vice versa.
 alter table public.handoffs
   add constraint handoffs_agent_valid check (
     agent is null or agent in (
-      'WARDEN','SOVEREIGN','STEWARD','ORACLE','FORGE','BEACON','HELM','LEDGER',
-      'RAINMAKER','HERALD','DRAGNET','AEGIS','GAVEL','ANCHOR','PATHFINDER',
-      'SMITH','SENTINEL','SCOUT','VANGUARD','MNEMO'
+      'FIFTY','GHOST','RAYRAY','KANAN','JULIO','SIMON','DRE','TASHA',
+      'LOBOS','TARIQ','SAXE','TOMMY','DAVIS','MONET',
+      'MARTY','CLYDE','JEANNIE','DOUG','MONICA','CAITLIN'
     )
   );
 

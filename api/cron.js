@@ -3,7 +3,7 @@
 // Also callable manually: GET /api/cron  Auth: Bearer c4-my-secret-2026
 
 import { createClient } from '@supabase/supabase-js';
-import { AGENTS, resolveAgent, SQUAD_FACTS } from '../lib/agents.js';
+import { AGENTS, resolveAgent, DEFAULT_CALLSIGN, SQUAD_FACTS } from '../lib/agents.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -17,12 +17,16 @@ const AUTH     = process.env.C4_SECRET || 'c4-my-secret-2026';
 // Roster + stack facts come from lib/agents.js. They used to be declared here AND in groq.js with
 // drifting text - two rosters, no authority. See that file for why.
 // ── Self-tasks when queue is empty — agents self-generate ─────────────────────
+// Keys MUST be callsigns from lib/agents.js: callGroq(AGENTS[agentKey], ...) below reads them
+// straight out of the roster, so a key that is not a callsign passes `undefined` as the system
+// prompt and the agent answers with no persona at all — silently. Renamed with the roster
+// 2026-07-17 (DOUG/TARIQ/JULIO/LOBOS/JEANNIE were SCOUT/HERALD/FORGE/RAINMAKER/SENTINEL).
 const SELF_TASKS = {
-  SCOUT:     'Research the top 3 cannabis discovery apps (Weedmaps, Leafly, Jane) and identify one gap each that CannaLens can exploit in the Syracuse NY market. Return structured bullet points with evidence.',
-  HERALD:    'Write a 150-word cold outreach email to a Syracuse dispensary owner introducing CannaLens as a free featured listing platform. Make it concrete, not salesy.',
-  FORGE:     'Audit the current CannaLens + C4 architecture. Identify the single highest-leverage technical improvement that would increase reliability or user retention. Return a 3-point proposal.',
-  RAINMAKER: 'Model a revenue scenario for CannaLens: Featured Listing at $99/mo. Show monthly and annual totals for 5, 10, and 20 dispensaries. What is break-even month given $0 infra cost?',
-  SENTINEL:  'Perform a risk audit of the Squad Deep stack: C4 (Vercel + Supabase + Groq), CannaLens (Cloudflare Workers + D1). List the top 5 single points of failure and one mitigation step each.',
+  DOUG:    'Research the top 3 cannabis discovery apps (Weedmaps, Leafly, Jane) and identify one gap each that CannaLens can exploit in the Syracuse NY market. Return structured bullet points with evidence.',
+  TARIQ:   'Write a 150-word cold outreach email to a Syracuse dispensary owner introducing CannaLens as a free listing on the map. Make it concrete, not salesy. Do NOT promise a demand radar, an analytics dashboard, or a paid tier — none of those exist.',
+  JULIO:   'Audit the current CannaLens + C4 architecture. Identify the single highest-leverage technical improvement that would increase reliability or user retention. Return a 3-point proposal.',
+  LOBOS:   'Model a revenue scenario for CannaLens: Featured Listing at $99/mo. Show monthly and annual totals for 5, 10, and 20 dispensaries. What is break-even month given $0 infra cost? Note explicitly that there is currently no payment path — Stripe prohibits cannabis.',
+  JEANNIE: 'Perform a risk audit of the Squad Deep stack: C4 (Vercel + Supabase + Groq), CannaLens (Cloudflare Workers + D1). List the top 5 single points of failure and one mitigation step each.',
 };
 
 // ── Groq call ─────────────────────────────────────────────────────────────────
@@ -117,15 +121,15 @@ export default async function handler(req, res) {
       // resolveAgent reports its fallback instead of hiding it.
       const { callsign, persona, fellBack, requested } = resolveAgent(h.agent);
       if (fellBack && requested) {
-        // A bad callsign that silently becomes WARDEN is how this broke the first time. Say it.
-        console.warn(`[cron] handoff #${h.id}: unknown callsign ${JSON.stringify(requested)} — running as WARDEN`);
+        // A bad callsign that silently becomes the bus agent is how this broke the first time. Say it.
+        console.warn(`[cron] handoff #${h.id}: unknown callsign ${JSON.stringify(requested)} — running as ${DEFAULT_CALLSIGN}`);
       }
 
       const prompt = [
         SQUAD_FACTS,
         '',
         `Handoff #${h.id}, ${h.from_hub || 'unknown'} -> ${h.to_hub || 'unknown'}`,
-        `Addressed to: ${callsign}${fellBack && requested ? ` (requested ${requested}, unknown — answering as WARDEN)` : ''}`,
+        `Addressed to: ${callsign}${fellBack && requested ? ` (requested ${requested}, unknown — answering as ${DEFAULT_CALLSIGN})` : ''}`,
         `Task: ${h.task}`,
         `Priority: ${h.priority || 'normal'}`,
         h.context ? `Context: ${h.context}` : '',
@@ -171,14 +175,14 @@ export default async function handler(req, res) {
     }
   }
 
-  // 3 ── MNEMO: log cycle summary ─────────────────────────────────────────────
+  // 3 ── CAITLIN: log cycle summary ───────────────────────────────────────────
   // "Completed" counts only self-tasks, which genuinely finish when the text is written.
   // Advisories are reported separately and never as completions — the underlying handoff is
   // still open and still needs a human. Collapsing the two is what made #21 look done.
   const completed = results.filter(r => r.status === 'completed').length;
   const advisedCount = results.filter(r => r.status === 'advised').length;
   const summary = `Cycle ${cycleStart} — ${results.length} tasks. Open handoffs: ${openHandoffs.length} (advised this cycle: ${advisedCount}, none closed). Self: ${results.filter(r => r.source === 'self').length}. Completed: ${completed}.`;
-  await logEntry('MNEMO', 'CYCLE_SUMMARY', summary);
+  await logEntry('CAITLIN', 'CYCLE_SUMMARY', summary);
 
   return res.status(200).json({
     success: true,

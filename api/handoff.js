@@ -18,7 +18,7 @@
 // verify.ps1 work unchanged while `agent`-style callers keep working (agent maps to to_hub).
 
 import { createClient } from '@supabase/supabase-js'
-import { CALLSIGNS } from '../lib/agents.js'
+import { CALLSIGNS, DEFAULT_CALLSIGN } from '../lib/agents.js'
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -150,7 +150,7 @@ export default async function handler(req, res) {
       priority: priority || 'normal',
       status: 'open',
       created_at: new Date().toISOString(),
-      // NULL means WARDEN. Requires sql/2026-07-16_handoffs-agent.sql to have been applied — the
+      // NULL means the bus agent (DEFAULT_CALLSIGN). Requires sql/2026-07-16_handoffs-agent.sql to have been applied — the
       // route inserting a column the DB lacks is precisely the bug that 500'd this endpoint for
       // three days (schema-cache error). Verify the column exists before deploying this.
       ...(callsign && { agent: callsign }),
@@ -179,7 +179,7 @@ export default async function handler(req, res) {
           error: 'handoffs.agent does not exist yet — agent routing is staged but not migrated',
           detail: error.message,
           fix: 'run 02_Projects/c4-mesh/sql/2026-07-16_handoffs-agent.sql in the Supabase SQL editor',
-          workaround: 'omit `agent` to create the handoff now; it will be answered by WARDEN',
+          workaround: `omit \"agent\" to create the handoff now; it will be answered by ${DEFAULT_CALLSIGN}`,
         })
       }
 

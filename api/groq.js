@@ -8,7 +8,7 @@
 // conversation: [{role:'user'|'assistant', content:'...'}] for multi-turn
 
 import { createClient } from '@supabase/supabase-js';
-import { resolveAgent, CALLSIGNS, SQUAD_FACTS } from '../lib/agents.js';
+import { resolveAgent, CALLSIGNS, DEFAULT_CALLSIGN, SQUAD_FACTS } from '../lib/agents.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -36,7 +36,10 @@ export default async function handler(req, res) {
   const allowed = PUBLIC_KEY ? [`Bearer ${AUTH}`, `Bearer ${PUBLIC_KEY}`] : [`Bearer ${AUTH}`];
   if (!allowed.includes(auth)) return res.status(401).json({ error: 'Unauthorized' });
 
-  const { agent = 'WARDEN', prompt, system, max_tokens = 800, conversation = [] } = req.body || {};
+  // Default comes from the roster, never a hardcoded literal. This was `agent = 'WARDEN'`, which
+  // the 2026-07-17 rename turned into a callsign that no longer exists — and since this route now
+  // rejects unknown callsigns, every caller that omitted `agent` would have started 400ing.
+  const { agent = DEFAULT_CALLSIGN, prompt, system, max_tokens = 800, conversation = [] } = req.body || {};
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
   // An unknown callsign used to fall through `AGENTS[agentKey] || AGENTS.WARDEN` and answer as
