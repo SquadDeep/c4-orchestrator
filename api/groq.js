@@ -19,7 +19,10 @@ const MODEL    = 'llama-3.3-70b-versatile';
 const AUTH     = process.env.C4_SECRET || 'c4-my-secret-2026';
 const PUBLIC_KEY = process.env.C4_PUBLIC_KEY || '';   // per-surface, groq-only — safe to ship in the public CannaLens client
 
-const SQUAD_CONTEXT = 'Squad Deep context: C4 Orchestrator (LIVE), CannaLens cannabis discovery PWA (LIVE, Syracuse NY, 64 strains, 19 dispensaries). Operator: Teh, solo founder, zero-budget stack. Be decisive and specific.';
+// 2026-07-16: said "64 strains, 19 dispensaries". Actual: 40 strains, 14 dispensaries. Every agent
+// reply was built on invented counts of our own product - same class of error as the cron telling
+// Groq that CannaLens ran on Netlify. If these numbers change, change them here; do not guess.
+const SQUAD_CONTEXT = 'Squad Deep context: C4 Orchestrator (LIVE), CannaLens cannabis discovery PWA (LIVE on Cloudflare Workers, Syracuse NY, 40 strains, 14 OCM-licensed dispensaries). Operator: Teh, solo founder, zero-budget stack. Be decisive and specific.';
 
 const AGENTS = {
   WARDEN:     'You are WARDEN, C4 bus orchestrator for Squad Deep. You coordinate all agents and maintain operational status.',
