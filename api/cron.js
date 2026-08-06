@@ -183,7 +183,8 @@ export default async function handler(req, res) {
   const completed = results.filter(r => r.status === 'completed').length;
   const advisedCount = results.filter(r => r.status === 'advised').length;
   const summary = `Cycle ${cycleStart} — ${results.length} tasks. Open handoffs: ${openHandoffs.length} (advised this cycle: ${advisedCount}, none closed). Self: ${results.filter(r => r.source === 'self').length}. Completed: ${completed}.`;
-  await logEntry('CAITLIN', 'CYCLE_SUMMARY', summary);
+  // 2026-08-06: CAITLIN->ROSCOE (memory seat, pulled from the actual House of Lies cast).
+  await logEntry('ROSCOE', 'CYCLE_SUMMARY', summary);
 
   return res.status(200).json({
     success: true,

@@ -40,13 +40,15 @@ alter table public.handoffs
 -- bus = FIFTY). Keep this list identical to CALLSIGNS in lib/agents.js — if they drift, a
 -- handoff the route accepts will be rejected by the database, or vice versa.
 -- 2026-08-06: RAYRAY->UNCLELOU, JULIO->RAQ, SIMON->BRAYDEN, DRE->UNIQUE, LOBOS->JUKEBOX,
--- SAXE->BREEZE, DAVIS->CANE (still not yet run against Supabase as of this edit).
+-- SAXE->BREEZE, DAVIS->CANE, CAITLIN->ROSCOE. This full list (including ROSCOE) was NOT what
+-- got run against Supabase on 2026-08-06 — that run still has CAITLIN. Run this file again,
+-- or just the two statements below, to bring the live constraint current.
 alter table public.handoffs
   add constraint handoffs_agent_valid check (
     agent is null or agent in (
       'FIFTY','GHOST','UNCLELOU','KANAN','RAQ','BRAYDEN','UNIQUE','TASHA',
       'JUKEBOX','TARIQ','BREEZE','TOMMY','CANE','MONET',
-      'MARTY','CLYDE','JEANNIE','DOUG','MONICA','CAITLIN'
+      'MARTY','CLYDE','JEANNIE','DOUG','MONICA','ROSCOE'
     )
   );
 
