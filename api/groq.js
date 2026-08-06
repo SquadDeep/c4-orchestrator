@@ -6,18 +6,22 @@
 // agent: any of the 20 callsigns — auto-loads their persona as system prompt
 // system: optional override (takes precedence over agent persona)
 // conversation: [{role:'user'|'assistant', content:'...'}] for multi-turn
+//
+// 2026-08-06: despite the filename, this no longer only calls Groq. Routed through
+// lib/llm-client.js's multi-provider chain (Opus -> Kimi paid -> Kimi free -> Groq -> DeepSeek).
+// The response now includes `provider`/`model` so a caller can see who actually answered. Kept
+// the filename/route path (`/api/groq`) unchanged — renaming a live public endpoint that
+// CannaLens's client may call is a bigger, separate decision than this one.
 
 import { createClient } from '@supabase/supabase-js';
 import { resolveAgent, CALLSIGNS, DEFAULT_CALLSIGN, SQUAD_FACTS } from '../lib/agents.js';
+import { callLLM } from '../lib/llm-client.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
-const GROQ_KEY = process.env.GROQ_API_KEY;
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const MODEL    = 'llama-3.3-70b-versatile';
-const AUTH     = process.env.C4_SECRET || 'c4-my-secret-2026';
+const AUTH = process.env.C4_SECRET || 'c4-my-secret-2026';
 const PUBLIC_KEY = process.env.C4_PUBLIC_KEY || '';   // per-surface, groq-only — safe to ship in the public CannaLens client
 
 // The roster and the stack facts both live in lib/agents.js now. This file used to carry its own
@@ -58,32 +62,21 @@ export default async function handler(req, res) {
   const agentKey = system ? 'CUSTOM' : callsign;
   const persona  = system || rosterPersona;
 
+  const systemPrompt = `${persona}\n\n${SQUAD_FACTS}`;
   const messages = [
-    { role: 'system', content: `${persona}\n\n${SQUAD_FACTS}` },
     ...conversation.slice(-12).map(m => ({ role: m.role, content: m.content })),
     { role: 'user', content: prompt }
   ];
 
   try {
-    const r = await fetch(GROQ_URL, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${GROQ_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, max_tokens: Math.min(max_tokens, 2000), messages })
-    });
-
-    if (!r.ok) {
-      const err = await r.text();
-      return res.status(502).json({ error: `Groq ${r.status}`, detail: err.substring(0, 200) });
-    }
-
-    const d       = await r.json();
-    const content = d.choices?.[0]?.message?.content?.trim() || '[no response]';
+    const result  = await callLLM(systemPrompt, messages, { maxTokens: Math.min(max_tokens, 2000) });
+    const content = result.content;
 
     // Log to episodic_log — non-blocking, best-effort
     supabase.from('episodic_log').insert({
       agent:      agentKey,
       task:       `DIRECT_TALK: ${prompt.substring(0, 100)}`,
-      output:     content.substring(0, 500),
+      output:     `[via ${result.provider}] ${content}`.substring(0, 500),
       hub:        'browser',
       event:      'direct_talk',
       detail:     content.substring(0, 200),
@@ -91,9 +84,11 @@ export default async function handler(req, res) {
       session_id: `talk_${Date.now()}`,
     }).then(() => {}).catch(() => {});
 
-    return res.status(200).json({ success: true, agent: agentKey, content });
+    return res.status(200).json({ success: true, agent: agentKey, content, provider: result.provider, model: result.model });
 
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    // err.attempts (from callLLM) lists every provider that was tried and why each failed —
+    // all five providers are down/misconfigured at once is the only way this branch is hit.
+    return res.status(502).json({ error: err.message, attempts: err.attempts || null });
   }
 }

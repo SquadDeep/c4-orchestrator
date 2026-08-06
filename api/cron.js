@@ -4,15 +4,13 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { AGENTS, resolveAgent, DEFAULT_CALLSIGN, SQUAD_FACTS } from '../lib/agents.js';
+import { callLLM, providerTag } from '../lib/llm-client.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
-const GROQ_KEY = process.env.GROQ_API_KEY;
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const MODEL    = 'llama-3.3-70b-versatile';
-const AUTH     = process.env.C4_SECRET || 'c4-my-secret-2026';
+const AUTH = process.env.C4_SECRET || 'c4-my-secret-2026';
 
 // Roster + stack facts come from lib/agents.js. They used to be declared here AND in groq.js with
 // drifting text - two rosters, no authority. See that file for why.
@@ -29,28 +27,6 @@ const SELF_TASKS = {
   JUKEBOX: 'Model a revenue scenario for CannaLens: Featured Listing at $99/mo. Show monthly and annual totals for 5, 10, and 20 dispensaries. What is break-even month given $0 infra cost? Note explicitly that there is currently no payment path — Stripe prohibits cannabis.',
   JEANNIE: 'Perform a risk audit of the Squad Deep stack: C4 (Vercel + Supabase + Groq), CannaLens (Cloudflare Workers + D1). List the top 5 single points of failure and one mitigation step each.',
 };
-
-// ── Groq call ─────────────────────────────────────────────────────────────────
-async function callGroq(system, user, maxTokens = 800) {
-  const r = await fetch(GROQ_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${GROQ_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user',   content: user }
-      ]
-    })
-  });
-  if (!r.ok) throw new Error(`Groq ${r.status}: ${await r.text()}`);
-  const d = await r.json();
-  return d.choices?.[0]?.message?.content?.trim() || '[no output]';
-}
 
 // ── Log entry ─────────────────────────────────────────────────────────────────
 async function logEntry(agent, task, output, extra = {}) {
@@ -141,7 +117,12 @@ export default async function handler(req, res) {
         'and the specific first step. Be concrete. If you lack the information to advise, say so.'
       ].filter(Boolean).join('\n');
 
-      const output = await callGroq(persona, prompt);
+      // 2026-08-06: routed through the multi-provider chain (lib/llm-client.js) instead of a
+      // Groq-only call. `result.provider` is the one that actually answered; `result.attempts`
+      // shows anything that failed first. Tagged into the stored output so a failover is visible
+      // in episodic_log without a schema change — see llm-client.js header for the full chain.
+      const result = await callLLM(persona, prompt, { maxTokens: 800 });
+      const output = `${providerTag(result)} ${result.content}`;
 
       // Advisory only. Status is deliberately untouched — the handoff stays open until a hub
       // that actually performed the work closes it. Logged under the callsign that actually ran,
@@ -149,7 +130,7 @@ export default async function handler(req, res) {
       // because it logged h.agent, which was undefined. Log what happened, not what was asked for.
       await logEntry(callsign, `ADVISORY: ${h.task}`, output, { handoff_id: h.id });
 
-      results.push({ source: 'handoff', id: h.id, agent: callsign, status: 'advised', chars: output.length });
+      results.push({ source: 'handoff', id: h.id, agent: callsign, status: 'advised', chars: output.length, provider: result.provider });
     } catch (err) {
       results.push({ source: 'handoff', id: h.id, agent: h.agent || null, status: 'failed', error: err.message });
     }
@@ -167,11 +148,12 @@ export default async function handler(req, res) {
 
     for (const agentKey of toRun) {
       try {
-        const output = await callGroq(AGENTS[agentKey], SELF_TASKS[agentKey], 700);
+        const result = await callLLM(AGENTS[agentKey], SELF_TASKS[agentKey], { maxTokens: 700 });
+        const output = `${providerTag(result)} ${result.content}`;
         await logEntry(agentKey, SELF_TASKS[agentKey], output);
-        results.push({ source: 'self', agent: agentKey, status: 'completed', chars: output.length });
+        results.push({ source: 'self', agent: agentKey, status: 'completed', chars: output.length, provider: result.provider });
       } catch (err) {
-        results.push({ source: 'self', agent: agentKey, status: 'failed', error: err.message });
+        results.push({ source: 'self', agent: agentKey, status: 'failed', error: err.message, attempts: err.attempts });
       }
     }
   }
