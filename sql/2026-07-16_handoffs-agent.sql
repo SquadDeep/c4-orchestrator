@@ -39,11 +39,13 @@ alter table public.handoffs
 -- Callsigns reverted to character names 2026-07-17 (squad = House of Lies, council = Power,
 -- bus = FIFTY). Keep this list identical to CALLSIGNS in lib/agents.js — if they drift, a
 -- handoff the route accepts will be rejected by the database, or vice versa.
+-- 2026-08-06: RAYRAY->UNCLELOU, JULIO->RAQ, SIMON->BRAYDEN, DRE->UNIQUE, LOBOS->JUKEBOX,
+-- SAXE->BREEZE, DAVIS->CANE (still not yet run against Supabase as of this edit).
 alter table public.handoffs
   add constraint handoffs_agent_valid check (
     agent is null or agent in (
-      'FIFTY','GHOST','RAYRAY','KANAN','JULIO','SIMON','DRE','TASHA',
-      'LOBOS','TARIQ','SAXE','TOMMY','DAVIS','MONET',
+      'FIFTY','GHOST','UNCLELOU','KANAN','RAQ','BRAYDEN','UNIQUE','TASHA',
+      'JUKEBOX','TARIQ','BREEZE','TOMMY','CANE','MONET',
       'MARTY','CLYDE','JEANNIE','DOUG','MONICA','CAITLIN'
     )
   );

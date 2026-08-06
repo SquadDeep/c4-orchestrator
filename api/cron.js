@@ -21,11 +21,12 @@ const AUTH     = process.env.C4_SECRET || 'c4-my-secret-2026';
 // straight out of the roster, so a key that is not a callsign passes `undefined` as the system
 // prompt and the agent answers with no persona at all — silently. Renamed with the roster
 // 2026-07-17 (DOUG/TARIQ/JULIO/LOBOS/JEANNIE were SCOUT/HERALD/FORGE/RAINMAKER/SENTINEL).
+// 2026-08-06: JULIO->RAQ and LOBOS->JUKEBOX (Council rename, see lib/agents.js header).
 const SELF_TASKS = {
   DOUG:    'Research the top 3 cannabis discovery apps (Weedmaps, Leafly, Jane) and identify one gap each that CannaLens can exploit in the Syracuse NY market. Return structured bullet points with evidence.',
   TARIQ:   'Write a 150-word cold outreach email to a Syracuse dispensary owner introducing CannaLens as a free listing on the map. Make it concrete, not salesy. Do NOT promise a demand radar, an analytics dashboard, or a paid tier — none of those exist.',
-  JULIO:   'Audit the current CannaLens + C4 architecture. Identify the single highest-leverage technical improvement that would increase reliability or user retention. Return a 3-point proposal.',
-  LOBOS:   'Model a revenue scenario for CannaLens: Featured Listing at $99/mo. Show monthly and annual totals for 5, 10, and 20 dispensaries. What is break-even month given $0 infra cost? Note explicitly that there is currently no payment path — Stripe prohibits cannabis.',
+  RAQ:     'Audit the current CannaLens + C4 architecture. Identify the single highest-leverage technical improvement that would increase reliability or user retention. Return a 3-point proposal.',
+  JUKEBOX: 'Model a revenue scenario for CannaLens: Featured Listing at $99/mo. Show monthly and annual totals for 5, 10, and 20 dispensaries. What is break-even month given $0 infra cost? Note explicitly that there is currently no payment path — Stripe prohibits cannabis.',
   JEANNIE: 'Perform a risk audit of the Squad Deep stack: C4 (Vercel + Supabase + Groq), CannaLens (Cloudflare Workers + D1). List the top 5 single points of failure and one mitigation step each.',
 };
 

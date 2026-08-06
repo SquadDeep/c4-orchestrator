@@ -99,5 +99,5 @@ insert into crm_companies (name, industry, website)
   where not exists (select 1 from crm_companies);
 
 insert into crm_deals (title, stage, value, probability, owner)
-  select 'CannaLens — first dispensary partner', 'qualified', 5000, 40, 'RAINMAKER'
+  select 'CannaLens — first dispensary partner', 'qualified', 5000, 40, 'JUKEBOX'
   where not exists (select 1 from crm_deals);
