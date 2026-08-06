@@ -15,7 +15,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { resolveAgent, CALLSIGNS, DEFAULT_CALLSIGN, SQUAD_FACTS } from '../lib/agents.js';
-import { callLLM } from '../lib/llm-client.js';
+import { callLLM, providerTag } from '../lib/llm-client.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -76,7 +76,7 @@ export default async function handler(req, res) {
     supabase.from('episodic_log').insert({
       agent:      agentKey,
       task:       `DIRECT_TALK: ${prompt.substring(0, 100)}`,
-      output:     `[via ${result.provider}] ${content}`.substring(0, 500),
+      output:     `${providerTag(result)} ${content}`.substring(0, 500),
       hub:        'browser',
       event:      'direct_talk',
       detail:     content.substring(0, 200),
@@ -84,7 +84,10 @@ export default async function handler(req, res) {
       session_id: `talk_${Date.now()}`,
     }).then(() => {}).catch(() => {});
 
-    return res.status(200).json({ success: true, agent: agentKey, content, provider: result.provider, model: result.model });
+    // attempts included even on success — a caller that only checked `provider` would not know
+    // opus/kimi were tried and failed first; this is the "easily verified" half of the failover,
+    // not just the "autonomous" half.
+    return res.status(200).json({ success: true, agent: agentKey, content, provider: result.provider, model: result.model, attempts: result.attempts });
 
   } catch (err) {
     // err.attempts (from callLLM) lists every provider that was tried and why each failed —
