@@ -85,13 +85,34 @@ export default async function handler(req, res) {
   } catch (_) { /* non-fatal */ }
 
   // 3 ── auto-create a review handoff (exact ingest.js shape: 4 proven columns) ─
+  // Only if the previous week's review is not STILL sitting unreviewed. This ran
+  // unconditionally every week and nothing ever closed the result, so it stacked one
+  // permanently-pending row per week forever (#37 07-20, #38 07-27, #39 08-03 - all still
+  // pending on 2026-08-07, all four sites, all duplicates of each other). A queue that only
+  // grows is a queue nobody reads, which is the same way 17 handoffs went unnoticed for
+  // months. Re-recon still runs and still stores the scrape; only the duplicate nag is
+  // suppressed, and the note says which scrapes are covered so nothing is lost.
   try {
-    await supabase.from('handoffs').insert({
-      from_hub: 'Recon',
-      to_hub:   'Main Hub',
-      task:     `review weekly CNY dispensary recon — ${reached}/${items.length} sites reached (DOUG)`,
-      context:  `scrape #${scrapeId ?? '?'} · source cny-recon`,
-    });
+    const { data: outstanding, error: outErr } = await supabase
+      .from('handoffs')
+      .select('id, context')
+      .eq('from_hub', 'Recon')
+      .in('status', ['pending', 'open', 'claimed', 'in_progress']);
+
+    // On a failed lookup, skip creating rather than assume "none outstanding" and stack
+    // another duplicate - the silent-degrade shape lessons.md L11 warns about.
+    if (outErr) {
+      console.warn('[recon] outstanding-handoff lookup failed, skipping review handoff:', outErr.message);
+    } else if (outstanding?.length) {
+      console.log(`[recon] review handoff already outstanding (#${outstanding.map(o => o.id).join(', #')}) - not stacking another`);
+    } else {
+      await supabase.from('handoffs').insert({
+        from_hub: 'Recon',
+        to_hub:   'Main Hub',
+        task:     `review weekly CNY dispensary recon — ${reached}/${items.length} sites reached (DOUG)`,
+        context:  `scrape #${scrapeId ?? '?'} · source cny-recon`,
+      });
+    }
   } catch (_) { /* non-fatal */ }
 
   // 4 ── ONE Groq pass -> ranked competitive digest ──────────────────────────
