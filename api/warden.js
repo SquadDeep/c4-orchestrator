@@ -175,6 +175,19 @@ const RISK_MATRIX = {
 };
 
 export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+
+  // 2026-08-07: this route had NO OPTIONS handler and NO method guard - it went straight
+  // from the auth check into callGroq() plus an episodic_log insert. So ANY authenticated
+  // request of ANY method ran a paid grant sweep: a browser CORS preflight, a liveness
+  // probe, a curl typo. It is a third GET-triggered job alongside /api/cron and /api/recon,
+  // and CLAUDE.md's "never probe these" note listed only those two. Now short-circuits
+  // exactly like cron.js:50 and recon.js:64 do, before auth and before any work.
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
+
   if (req.headers.authorization !== `Bearer ${AUTH}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
