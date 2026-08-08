@@ -13,18 +13,32 @@
 // the next roster change. Verified zero callers before renaming: no dashboard, helper,
 // cron.js path, or the CannaLens Worker referenced /api/warden.
 //
-// ⚠️ TWO KNOWN ISSUES IN THIS FILE, deliberately left as-is rather than silently changed:
-//   1. Personas are hardcoded inline here instead of imported from lib/agents.js, which
-//      CLAUDE.md names as the single source of truth ("don't re-declare it"). This is the
-//      same duplication that let cron.js and groq.js drift apart.
-//   2. `type=risk` attributes its output to agent 'ARBITER' - a callsign that exists nowhere
-//      in the 20-seat roster and is not in the v2->v3 mapping either. It is written straight
-//      into episodic_log.agent, and that insert is wrapped in .catch(() => {}), so if the
-//      column ever gains a CHECK constraint the write fails silently. Fixing it means
-//      choosing a real seat (TOMMY/CISO and CANE/Counsel are the plausible ones) - a roster
-//      decision, not a rename, so it needs an owner's call.
+// 2026-08-08, same day, second pass - three things fixed after the rename:
+//   1. Personas no longer hardcoded here; imported from lib/agents.js, the documented single
+//      source of truth. Task framing moved from the system prompt into the user prompt, so
+//      nothing was lost - it matches cron.js's callLLM(AGENTS[key], task) shape.
+//   2. `type=risk` attributed its output to 'ARBITER', a callsign in no roster and not in the
+//      v2->v3 mapping, invented inline and written into episodic_log.agent behind a silent
+//      .catch(). Reassigned to TOMMY (CISO - the only seat whose whole remit is risk). CANE
+//      owns the regulatory dimension specifically if this ever narrows to compliance alone.
+//   3. Invented product counts removed: "65+ strains" and "18 on CannaLens map" against a real
+//      40 strains / 14 dispensaries. Same bug groq.js fixed in e85545f, never fixed here, and
+//      it mattered more here because one of these briefs is written FOR INVESTORS. Our figures
+//      now come from SQUAD_FACTS; third-party market numbers are marked unverified rather than
+//      deleted, since they are dated and want re-sourcing before any external use.
+//
+// Response field was `warden_brief` on three branches and `arbiter_assessment` on a fourth;
+// both are now `brief`/`assessment`. Nothing consumed them - verified zero callers.
 
 import { createClient } from '@supabase/supabase-js';
+// 2026-08-08: personas now come from the roster instead of being retyped here. This file
+// hardcoded its own system prompts, including an invented 'ARBITER' seat - the same
+// re-declaration that let cron.js and groq.js drift apart, which is why lib/agents.js was
+// made the single source of truth. SQUAD_FACTS is imported for the same reason: the branches
+// below asserted "65+ strains" and "18 on CannaLens map" against a real catalog of 40 strains
+// and 14 dispensaries. That is the exact bug fixed in groq.js by e85545f and never fixed here,
+// and it mattered more here because the investor brief is investor-facing material.
+import { AGENTS, SQUAD_FACTS } from '../lib/agents.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -218,8 +232,8 @@ export default async function handler(req, res) {
   // ── GRANTS SWEEP ──
   if (type === 'grants') {
     const summary = await callGroq(
-      `You are FIFTY, Squad Deep's intelligence and security chief. You produce structured, actionable grant intelligence reports for CannaLens — a Syracuse NY cannabis information platform (NOT a retailer). Be direct, prioritize by fit, and surface immediate action items.`,
-      `Monthly Grant Intelligence Sweep — CannaLens / June 2026\n\nFunding opportunities identified:\n${GRANTS.map((g,i) => `${i+1}. ${g.name} | ${g.type} | ${g.amount} | Fit: ${g.fit} | Deadline: ${g.deadline}`).join('\n')}\n\nGenerate a prioritized action brief: which 3 should be pursued immediately and why. Include any risks or disqualifiers. Keep it under 500 words.`
+      `${AGENTS.FIFTY}\n\n${SQUAD_FACTS}`,
+      `Task: produce structured, actionable grant intelligence for CannaLens — a Syracuse NY cannabis information platform, NOT a retailer. Be direct, prioritize by fit, surface immediate action items.\n\nMonthly Grant Intelligence Sweep — CannaLens\n\nFunding opportunities identified:\n${GRANTS.map((g,i) => `${i+1}. ${g.name} | ${g.type} | ${g.amount} | Fit: ${g.fit} | Deadline: ${g.deadline}`).join('\n')}\n\nGenerate a prioritized action brief: which 3 should be pursued immediately and why. Include any risks or disqualifiers. Keep it under 500 words.`
     );
 
     await supabase.from('episodic_log').insert({
@@ -234,59 +248,73 @@ export default async function handler(req, res) {
       swept_at: new Date().toISOString(),
       total_opportunities: GRANTS.length,
       grants: GRANTS,
-      warden_brief: summary
+      brief: summary
     });
   }
 
   // ── RISK MATRIX ──
   if (type === 'risk') {
+    // Was agent 'ARBITER' - a callsign in no roster and not in the v2->v3 mapping, invented
+    // inline here and written straight into episodic_log.agent. Reassigned to TOMMY: the CISO
+    // seat is the only one whose whole remit is risk (operational risk, threat-model passes,
+    // worst-case-first), which is what a four-dimension risk matrix is. Note CANE owns the
+    // regulatory dimension specifically - if this brief ever narrows to compliance alone,
+    // that is the seat to move it to.
     const assessment = await callGroq(
-      `You are ARBITER, President of Risk Management and Underwriting for Squad Deep / CannaLens. You assess risk across regulatory, financial, reputational, and operational dimensions. You are thorough, conservative, and protect the platform's long-term viability.`,
-      `Generate a CannaLens Risk Assessment Summary for June 2026.\n\nMatrix:\n${JSON.stringify(RISK_MATRIX, null, 2)}\n\nProduce a 1-page executive risk summary covering: overall risk rating, top 3 risks to address, compliance status, and underwriting recommendation. Format for non-technical stakeholders (investors, grant reviewers).`
+      `${AGENTS.TOMMY}\n\n${SQUAD_FACTS}`,
+      `Task: assess risk across regulatory, financial, reputational, and operational dimensions for Squad Deep / CannaLens. Be thorough and conservative; protect the platform's long-term viability.\n\nGenerate a CannaLens Risk Assessment Summary.\n\nMatrix:\n${JSON.stringify(RISK_MATRIX, null, 2)}\n\nProduce a 1-page executive risk summary covering: overall risk rating, top 3 risks to address, compliance status, and underwriting recommendation. Format for non-technical stakeholders (investors, grant reviewers).`
     );
 
     await supabase.from('episodic_log').insert({
-      agent: 'ARBITER',
+      agent: 'TOMMY',
       event_type: 'risk_assessment',
       payload: { matrix: RISK_MATRIX, assessment, assessed_at: new Date().toISOString() }
     }).catch(() => {});
 
     return res.status(200).json({
-      agent: 'ARBITER',
+      agent: 'TOMMY',
       report_type: 'risk_assessment',
       assessed_at: new Date().toISOString(),
       risk_matrix: RISK_MATRIX,
-      arbiter_assessment: assessment
+      assessment
     });
   }
 
   // ── INVESTOR INTEL ──
   if (type === 'investors') {
+    // "Platform: 65+ strains" was invented here - the real catalog is 40 (SQUAD_FACTS).
+    // Inflating traction in a brief written FOR INVESTORS is the worst place in this stack
+    // to launder a number, so the profile now defers to SQUAD_FACTS rather than restating it.
     const brief = await callGroq(
-      `You are FIFTY, intelligence chief for Squad Deep. You identify strategic investor opportunities for CannaLens — a BIPOC-founded cannabis information platform from Syracuse NY. Focus on investors who value equity, community impact, and AI-driven platforms.`,
-      `Investor Intelligence Brief — CannaLens June 2026\n\nCannaLens profile:\n- Founded in Syracuse NY by a BIPOC entrepreneur\n- Cannabis information + discovery PWA (NOT a retailer)\n- Revenue: subscription, affiliate, partner listings\n- Platform: 65+ strains, live dispensary map, AI budtender, personal journal\n- Markets: NY adult-use cannabis, expanding nationally\n- Stage: Pre-seed / Seed-A\n\nIdentify and describe 8 ideal investor profiles: angel networks, seed funds, cannabis tech VCs, BIPOC-focused funds, NY-based impact investors, and strategic corporate investors. For each, include: investor type, typical check size, why they fit CannaLens, and approach strategy. Do NOT include company names the LLM cannot verify — describe investor profiles and known public programs only.`
+      `${AGENTS.FIFTY}\n\n${SQUAD_FACTS}`,
+      `Task: identify strategic investor opportunities for CannaLens — a BIPOC-founded cannabis information platform from Syracuse NY. Focus on investors who value equity, community impact, and AI-driven platforms.\n\nInvestor Intelligence Brief — CannaLens\n\nCannaLens profile (use ONLY the verified facts above for any product or traction figure):\n- Founded in Syracuse NY by a BIPOC entrepreneur\n- Cannabis information + discovery PWA (NOT a retailer)\n- Revenue model: subscription, affiliate, partner listings\n- Markets: NY adult-use cannabis, expanding nationally\n- Stage: Pre-seed / Seed-A\n\nIdentify and describe 8 ideal investor profiles: angel networks, seed funds, cannabis tech VCs, BIPOC-focused funds, NY-based impact investors, and strategic corporate investors. For each, include: investor type, typical check size, why they fit CannaLens, and approach strategy. Do NOT include company names you cannot verify — describe investor profiles and known public programs only. Do NOT inflate traction: state it as it is.`
     );
 
     return res.status(200).json({
       agent: 'FIFTY',
       report_type: 'investor_intelligence',
       generated_at: new Date().toISOString(),
-      warden_brief: brief
+      brief
     });
   }
 
   // ── MARKET INTEL ──
   if (type === 'intel') {
+    // "18 on CannaLens map" was invented - the map renders 14 (SQUAD_FACTS), and the same
+    // line's "14+ on Weedmaps" is an unsourced third-party count. Our own number now comes
+    // from SQUAD_FACTS; the external market figures are left but explicitly marked unverified
+    // so the model does not present them as ours. They are dated mid-2026 and should be
+    // re-sourced before this brief is shown to anyone outside.
     const intel = await callGroq(
-      `You are FIFTY, intelligence chief for Squad Deep. Generate a market intelligence brief for the CannaLens platform covering the NY cannabis market, Onondaga County developments, and platform growth signals.`,
-      `CannaLens Market Intelligence — June 2026\n\nKnown data points:\n- NY adult-use cannabis sales: $1.5B+ since launch\n- Onondaga County tax revenue from cannabis: $3.2M in 2025\n- Licensed dispensaries in CNY: 14+ on Weedmaps; 18 on CannaLens map\n- BIPOC-owned dispensaries in Syracuse: 3 (Diamond Tree, Loudpack Exotics, The Higher Company)\n- OCM expanded license cap for upstate NY: +30% approved\n- Consumption lounges now legal in NY (April 2026)\n- CGRF community reinvestment fund: $5M–$15M available\n\nGenerate a 1-page market intelligence brief covering: market size signal, competitive positioning, 3 growth opportunities for CannaLens, and 2 threats to monitor. Keep it sharp and data-driven.`
+      `${AGENTS.FIFTY}\n\n${SQUAD_FACTS}`,
+      `Task: generate a market intelligence brief for CannaLens covering the NY cannabis market, Onondaga County developments, and platform growth signals.\n\nCannaLens Market Intelligence\n\nFor anything about OUR platform (catalog size, dispensary count, users, revenue), use ONLY the verified facts above.\n\nExternal market data points — UNVERIFIED, treat as approximate and attribute as third-party, never as our own figures:\n- NY adult-use cannabis sales: $1.5B+ since launch\n- Onondaga County tax revenue from cannabis: $3.2M in 2025\n- BIPOC-owned dispensaries in Syracuse: 3 (Diamond Tree, Loudpack Exotics, The Higher Company)\n- OCM expanded license cap for upstate NY: +30% approved\n- Consumption lounges now legal in NY (April 2026)\n- CGRF community reinvestment fund: $5M–$15M available\n\nGenerate a 1-page market intelligence brief covering: market size signal, competitive positioning, 3 growth opportunities for CannaLens, and 2 threats to monitor. Keep it sharp and data-driven. Flag any figure you are relying on that you cannot verify.`
     );
 
     return res.status(200).json({
       agent: 'FIFTY',
       report_type: 'market_intelligence',
       generated_at: new Date().toISOString(),
-      warden_brief: intel
+      brief: intel
     });
   }
 
